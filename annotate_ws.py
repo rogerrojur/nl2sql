@@ -8,7 +8,27 @@ import ujson as json
 from stanza.nlp.corenlp import CoreNLPClient
 from tqdm import tqdm
 import copy
+import re
 
+bai = re.compile(r'(\d+)百')
+
+qian = re.compile(r'(\d+)千')
+
+wan = re.compile(r'(\d+)万')
+
+baiwan = re.compile(r'(\d+)百万')
+
+qianwan = re.compile(r'(\d+)千万')
+
+yi = re.compile(r'(\d+)亿')
+
+def process(s):
+    output = bai.sub(lambda x: x.group(1) + '00', s)
+    output = qian.sub(lambda x: x.group(1) + '000', output)
+    output = wan.sub(lambda x: x.group(1) + '0000', output)
+    output = baiwan.sub(lambda x: x.group(1) + '000000', output)
+    output = qianwan.sub(lambda x: x.group(1) + '0000000', output)
+    return yi.sub(lambda x: x.group(1) + '00000000', output)
 
 client = None
 
@@ -23,7 +43,7 @@ def annotate(sentence, lower=True):
     if client is None:
         client = CoreNLPClient(default_annotators='ssplit,tokenize'.split(','))
     words, gloss, after = [], [], []
-    for s in client.annotate(sentence):
+    for s in client.annotate(process(sentence)):
         for t in s:
             words.append(t.word)
             gloss.append(t.originalText)

@@ -195,7 +195,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--din', default='./data/', help='data directory')
     parser.add_argument('--dout', default='./data/tok', help='output directory')
-    parser.add_argument('--split', default='test', help='comma=separated list of splits to process')
+    parser.add_argument('--split', default='train,val,test', help='comma=separated list of splits to process')
     args = parser.parse_args()
 
     answer_toy = not True

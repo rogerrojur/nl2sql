@@ -206,8 +206,8 @@ if __name__ == '__main__':
 
     # for split in ['train', 'val', 'test']:
     for split in args.split.split(','):
-        fsplit = os.path.join(args.din, split) + '.json'
-        ftable = os.path.join(args.din, split) + '.tables.json'
+        fsplit = os.path.join(args.din, split, split) + '.json'
+        ftable = os.path.join(args.din, split, split) + '.tables.json'
         fout = os.path.join(args.dout, split) + '_tok.json'
 
         print('annotating {}'.format(fsplit))

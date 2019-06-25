@@ -6,18 +6,20 @@ def count_lines(fname):
         return sum(1 for line in f)
 
 
-def get_error_count(fname):
-    count = 0
+def get_maxcol_num(fname):
+    max_wc, max_sc = 0, 0
     with open(fname) as fs:
         for line in fs:
-            if 'tok_error' in line:
-                count += 1
+            d = json.loads(line)
+            sql = d['sql']
+            max_sc = max(len(sql['sel']), max_sc)
+            max_wc = max(len(sql['conds']), max_wc)
 
-    return count / count_lines(fname)
+    return max_wc, max_sc
             
 
 if __name__ == '__main__':
-    train_part = get_error_count('./train_tok.json')
-    print('train_tok.json中tok_error的数据：%.3f.' % train_part)
-    val_part = get_error_count('./val_tok.json')
-    print('val_tok.json中tok_error的数据：%.3f.' % val_part)
+    train_wc, train_sc = get_maxcol_num('./data/train/train.json')
+    print('train.json中where col的最大个数是%d, sel col的最大个数是%d.' % (train_wc, train_sc))
+    val_wc, val_sc = get_maxcol_num('./data/val/val.json')
+    print('val.json中where col的最大个数是%d, sel col的最大个数是%d.' % (val_wc, val_sc))

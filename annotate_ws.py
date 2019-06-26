@@ -43,7 +43,7 @@ def annotate(sentence, lower=True):
     if client is None:
         client = CoreNLPClient(default_annotators='ssplit,tokenize'.split(','))
     words, gloss, after = [], [], []
-    for s in client.annotate(process(sentence)):
+    for s in client.annotate(sentence):
         for t in s:
             words.append(t.word)
             gloss.append(t.originalText)
@@ -121,6 +121,318 @@ def check_wv_tok_in_nlu_tok(wv_tok1, nlu_t1):
     return g_wvi1_corenlp
 
 
+def find_str_in_list(s, l):
+    # from stack overflow.
+    # s 包括 l 中的一个连续的子序列
+    results = []
+    s_len, l_len = len(s), len(l)
+    # for ix, token in enumerate(l):
+    #     if token.startswith(s):
+    #         results.append((ix, ix))
+
+    # if len(results) != 0:
+    #     return results
+
+    # 第一遍：假设存在完全匹配
+    if not results:
+        # print('1-th iter')
+        for ix, token in enumerate(l):
+            if s[0] == token[0]:
+                tmp_str, tmp_idx = '', ix
+                while len(tmp_str) < s_len and tmp_idx < l_len:
+                    tmp_str += l[tmp_idx]
+                    tmp_idx += 1
+                if tmp_str == s:
+                    results.append((ix, tmp_idx-1))
+
+    # 2017年 2017
+    if not results:
+        # print('2-th iter')
+        for ix, token in enumerate(l):
+            if s[0] == token[0]:
+                if token.startswith(s):
+                    results.append((ix, ix))
+
+    # 如果不存在完全匹配, 如 携 程， 携程网; 途牛， 途牛网;
+    if not results:
+        # print('3-th iter')
+        for ix, token in enumerate(l):
+            if s[0] == token[0]:
+                for i in range(ix, l_len):
+                    tmp_str = ''.join(l[ix:i+1])    # 把第i个token包含进去
+                    if not s.startswith(tmp_str) and i > ix:
+                        tmp_str = ''.join(l[ix:i])  # 把第i个token剔除，只包含到i-1个token
+                        if len(tmp_str) >= s_len / 2:
+                            results.append((ix, i-1))
+                            break
+
+    if not results and not is_all_number_word(s):
+        # print('4-th iter')
+        # 放大招：合并字符串，记录每个字符所在的token
+        ss = ''
+        c_to_t_dic = {}   # char-index : token index
+        # 将ss中的每个字符对应到token的索引index
+        for t_ix, token in enumerate(l):
+            for i in range(len(token)):
+                c_to_t_dic[len(ss) + i] = t_ix
+            ss += token
+
+        # 寻找的字符串最短为2，设定不能寻找单字, 如果原名字长为8，则寻找的最短长度为3
+        for sub_len in range(len(s), max(1, min(len(s)//2 - 1, 2)), -1):
+            if results:
+                break
+            for si in range(0, len(s) - sub_len + 1):
+                sub_str = s[si:si+sub_len]
+                if not results:
+                    tmp_start = ss.find(sub_str)
+                    if tmp_start != -1:
+                        results.append((c_to_t_dic[tmp_start], c_to_t_dic[tmp_start+sub_len-1]))
+                else:
+                    break
+
+    return results
+
+
+def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
+    """
+    不对where value进行annote！
+    原因：'铁龙物流'在question中的token可能是 铁龙 / 物流， 而单独annote的时候可能是 铁 / 龙 / 物流
+    """
+    g_wvi1_corenlp = []
+    nlu_t1_low = [tok.lower() for tok in nlu_t1]
+    for i_wn, wv_str in enumerate(wv_str_list):
+        wv_low = wv_str.lower()
+        results = find_str_in_list(wv_low, nlu_t1_low)
+        st_idx, ed_idx = results[0] # 选择第1个元素，忽略后面的
+
+        g_wvi1_corenlp.append( [st_idx, ed_idx] )
+
+    return g_wvi1_corenlp
+
+def is_all_number_word(s):
+    for c in s:
+        if c not in '两零一二三四五六七八九十百千万亿0123456789':
+            return False
+    return True
+
+
+dic1 ={u'零':0, u'一':1, u'二':2, u'三':3, u'四':4, u'五':5, u'六':6, u'七':7, u'八':8, u'九':9, u'十':10, u'百':100, u'千':1000, u'万':10000,
+       u'0':0, u'1':1, u'2':2, u'3':3, u'4':4, u'5':5, u'6':6, u'7':7, u'8':8, u'9':9,
+                u'壹':1, u'贰':2, u'叁':3, u'肆':4, u'伍':5, u'陆':6, u'柒':7, u'捌':8, u'玖':9, u'拾':10, u'佰':100, u'仟':1000, u'萬':10000,
+       u'亿':100000000}
+def getResultForDigit(a):
+    # '八一'
+    if len(a) == 2 and a[0] in '三四五六七八九' and a[1] in '零一二三四五六七八九':
+        return a
+    if len(a) > 0 and a[0] == '两':
+        a = '二' + a[1:]
+    count = 0 
+    result = 0
+    tmp = 0
+    Billion = 0  
+    try:
+        while count < len(a):
+            tmpChr = a[count]
+            #print tmpChr
+            tmpNum = dic1.get(tmpChr, None)
+            #如果等于1亿
+            if tmpNum == 100000000:
+                result = result + tmp
+                result = result * tmpNum
+                #获得亿以上的数量，将其保存在中间变量Billion中并清空result
+                Billion = Billion * 100000000 + result 
+                result = 0
+                tmp = 0
+            #如果等于1万
+            elif tmpNum == 10000:
+                result = result + tmp
+                result = result * tmpNum
+                tmp = 0
+            #如果等于十或者百，千
+            elif tmpNum >= 10:
+                if tmp == 0:
+                    tmp = 1
+                result = result + tmpNum * tmp
+                tmp = 0
+            #如果是个位数
+            elif tmpNum is not None:
+                tmp = tmp * 10 + tmpNum
+            count += 1
+        result = result + tmp
+        result = result + Billion
+    except:
+        return a
+    return str(result)
+
+def is_decimal_number_word(token):
+    point_idx = token.find('点')
+    if point_idx < 1 or point_idx == len(token) - 1:
+        return False
+    tt = token.split('点')
+    if len(tt) != 2:
+        return False
+
+    # 一点六四
+    return is_all_number_word(tt[0]) and is_all_number_word(tt[1])
+
+
+zh_digit_dic = {'零':'0', '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八':'8', '九':'9', 
+            '1':'1', '0':'0','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9','幺':'1'}
+
+
+helper = lambda x : ''.join([zh_digit_dic[i] for i in x])
+
+
+def getResultForDecimal(token):
+    res = ''
+    try:
+        tt = token.split('点')
+        res = getResultForDigit(tt[0]) + '.'
+        for c in tt[1]:
+            if c in zh_digit_dic:
+                res += zh_digit_dic[c]
+            else:
+                res += c
+    except:
+        return token
+    return res
+
+
+def pre_translate(token_list):
+    results = []
+    dic = zh_digit_dic
+    # 由于token_list和where_value均按照这个标准token，可以统一到一个标准
+    str_to_str_dic = {'北上':'北京上海','北上广':'北京上海广州','苏杭':'苏州杭州','买入':'增持', '两':'2','闽':'福建',
+    '国航':'中国国航中国国际航空有限公司','星期':'周','津厦':'天津厦门','达标':'合格','师大':'师范大学','广东话':'粤语',
+    '及格':'合格','工大':'工业大学','开卷':'闭卷','符合':'合格','小汽车':'小型轿车','教师':'老师','SAMSUNG':'三星','首都':'北京市',
+    '苏泊尔':'SUPOR','豫':'河南','研究生':'硕士','财经':'经济','BTV':'北京电视台','Duke':'杜克','University':'大学',
+    'Press':'出版社','同意':'通过','AAAAA':'5A','AAAA':'4A','AAA':'3A','经贸':'经济与贸易','CITVC':'中国国际电视总公司',
+    '央视':'中央电视台','周一至周五':'工作日','HongKongUniversityofScienceandTechnology':'HKUST','星期天':'周日','星期一':'周一',
+    '星期二':'周二','星期三':'周三','星期四':'周四','星期五':'周五','星期六':'周六','建行':'建设银行','招行':'招商银行','工行':'工商银行',
+    '符合规定':'合格'}
+
+    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川']   # 和 一 搭配的字，三星，万科，四川
+    # for ix, token in enumerate(token_list):
+    ix = -1
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+        if token in str_to_str_dic:
+            results.append(str_to_str_dic[token])
+            continue
+        if ix < len(token_list) - 1 and (token == '企鹅' and token_list[ix+1] == '公司') or (token == '鹅' and token_list[ix+1] == '厂'):
+            results.append('腾讯')
+            results.append('公司')
+            ix += 1
+            continue
+
+        # "16","年"; "一六年"; "今年"
+        if token.endswith('年'):
+            if len(token) == 3 and token[0] in dic and token[1] in dic:
+                pre_tmp_str = '20' if int(helper(token[:2])) <= 20 else '19'
+                tmp_str = pre_tmp_str + str(dic[token[0]]) + str(dic[token[1]]) + token[2]
+                results.append(tmp_str)
+                continue
+            if len(token) == 1:
+                if ix > 0 and len(token_list[ix-1]) == 2 and str.isdigit(token_list[ix-1]):
+                    # 16变成2016
+                    results[-1] = '20' + results[-1] + '年'
+                    continue
+            if len(token) == 2 and token[0] in ['今','去','前']:
+                if token[0] == '今':
+                    results.append('2019年')
+                if token[0] == '去':
+                    results.append('2018年')
+                if token[0] == '前':
+                    results.append('2017年')
+                continue
+            # 两千年
+            if is_all_number_word(token[:-1]):
+                results.append(getResultForDigit(token[:-1]) + '年')
+                continue
+
+        #  '第二', '第几', '第2'
+        if token.startswith('第'):
+            tmp_str = '第'
+            for i in range(1, len(token)):
+                if token[i] in dic:
+                    tmp_str += str(dic[token[i]])
+                else:
+                    tmp_str += token[i]
+            results.append(tmp_str)
+            continue
+
+        # '一' '共';
+        if token == '一' and ix < len(token_list) - 1 and token_list[ix+1] in spectial_charlist1:
+            results.append(token)
+            continue
+
+        # 万 科
+        if token in ['百', '千', '万', '亿']:
+            results.append(token)
+            continue
+
+        # '百亿'; '一百亿'; '5万'; '二十'; '三千万'; '三十八万'; '百万';20万
+        if is_all_number_word(token):
+            results.append(getResultForDigit(token))
+            continue
+
+        # 一点六; 零点五; 十二点八
+        if is_decimal_number_word(token):
+            results.append(getResultForDecimal(token))
+            continue
+
+        # 十九点七二块
+        if is_decimal_number_word(token[:-1]):
+            results.append(getResultForDecimal(token[:-1]) + token[-1])
+            continue
+
+        if token[0] == '两' and is_all_number_word(token[1:]):
+            results.append(getResultForDigit('二' + token[1:]))
+            continue
+
+        # '百分之八'
+        if len(token) >= 4 and token[:3] == '百分之':
+            if is_all_number_word(token[3:]):
+                results.append(getResultForDigit(token[3:])+'%')
+                continue
+            if is_decimal_number_word(token[3:]):
+                results.append(getResultForDecimal(token[3:])+'%')
+                continue
+
+        # 一共;百度；万科
+        if len(token) > 1 and is_all_number_word(token[:-1]) and token[-1] not in spectial_charlist1:
+            results.append(str(getResultForDigit(token[:-1])) + token[-1])
+            continue
+
+        if token[-2:] == '月份' and is_all_number_word(token[:-2]):
+            results.append(getResultForDigit(token[:-2]) + '月')
+            continue
+
+        # 一点六；
+
+        # '二十元';'二十块';"5","角";"四","角钱";"十二","块","五","毛"；"十二点五","元"
+        if token[0] == '角' or token[0] == '毛':
+            if results and is_all_number_word(results[-1]):
+                results[-1] = '0.' + results[-1] + '元'
+                continue
+
+        if (token == '块' or token == '元') and 0 < ix < len(token_list)-1:
+            if is_all_number_word(token_list[ix-1]) and is_all_number_word(token_list[ix+1]):
+                results[-1] = str(getResultForDigit(token_list[ix-1])) + '.' + str(getResultForDigit(token_list[ix+1])) + '元'
+                ix += 1
+                continue
+
+        if (token == '块' or token == '元') and ix == len(token_list)-1:
+            if is_all_number_word(token_list[ix-1]):
+                results[-1] = str(getResultForDigit(token_list[ix-1])) + '元'
+                continue
+
+        results.append(token)
+
+    return results
+
+
 def annotate_example_ws(example, table):
     """
     Jan. 2019: Wonseok
@@ -129,7 +441,12 @@ def annotate_example_ws(example, table):
     ann = {'table_id': example['table_id']}
     _nlu_ann = annotate(example['question'])
     ann['question'] = example['question']
-    ann['question_tok'] = _nlu_ann['gloss']
+
+    # 16, 年; 一六年; 这种形式转化为2016年
+    # print(_nlu_ann['gloss'])
+    processed_nlu_token_list = pre_translate(_nlu_ann['gloss'])
+
+    ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {
     #     'header': [annotate(h) for h in table['header']],
     # }
@@ -143,14 +460,20 @@ def annotate_example_ws(example, table):
     conds1 = ann['sql']['conds']    # "conds": [[0, 2, "大黄蜂"], [0, 2, "密室逃生"]]
     wv_ann1 = []
     for conds11 in conds1:
+        # _wv_ann1 = annotate(str(conds11[2]))
+        # wv_ann11 = _wv_ann1['gloss']
+        # wv_ann1.append( wv_ann11 )
         _wv_ann1 = annotate(str(conds11[2]))
-        wv_ann11 = _wv_ann1['gloss']
-        wv_ann1.append( wv_ann11 )
+        wv_ann11 = pre_translate(_wv_ann1['gloss'])
+        wv_ann11_str = ''.join(wv_ann11)
+        # wv_ann1.append(str(conds11[2]))
+        wv_ann1.append(wv_ann11_str)
 
         # Check whether wv_ann exsits inside question_tok
 
     try:
-        wvi1_corenlp = check_wv_tok_in_nlu_tok(wv_ann1, ann['question_tok'])
+        wvi1_corenlp = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
+        # wvi1_corenlp = check_wv_tok_in_nlu_tok(wv_ann1, ann['question_tok'])
         ann['wvi_corenlp'] = wvi1_corenlp
     except:
         ann['wvi_corenlp'] = None
@@ -206,8 +529,8 @@ if __name__ == '__main__':
 
     # for split in ['train', 'val', 'test']:
     for split in args.split.split(','):
-        fsplit = os.path.join(args.din, split, split) + '.json'
-        ftable = os.path.join(args.din, split, split) + '.tables.json'
+        fsplit = os.path.join(args.din,split, split) + '.json'
+        ftable = os.path.join(args.din,split, split) + '.tables.json'
         fout = os.path.join(args.dout, split) + '_tok.json'
 
         print('annotating {}'.format(fsplit))
@@ -227,6 +550,9 @@ if __name__ == '__main__':
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
                 a = annotate_example_ws(d, tables[d['table_id']])
+                # print(a)
+                # if cnt > 10:
+                #     break
                 # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
                 fo.write(json.dumps(a, ensure_ascii=False) + '\n')
                 n_written += 1

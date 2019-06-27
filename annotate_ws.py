@@ -125,6 +125,7 @@ def find_str_in_list(s, l):
     # from stack overflow.
     # s 包括 l 中的一个连续的子序列
     results = []
+    stage = '0'
     s_len, l_len = len(s), len(l)
     # for ix, token in enumerate(l):
     #     if token.startswith(s):
@@ -135,6 +136,7 @@ def find_str_in_list(s, l):
 
     # 第一遍：假设存在完全匹配
     if not results:
+        stage = '1'
         # print('1-th iter')
         for ix, token in enumerate(l):
             if s[0] == token[0]:
@@ -147,6 +149,7 @@ def find_str_in_list(s, l):
 
     # 2017年 2017
     if not results:
+        stage = '2'
         # print('2-th iter')
         for ix, token in enumerate(l):
             if s[0] == token[0]:
@@ -156,18 +159,25 @@ def find_str_in_list(s, l):
     # 如果不存在完全匹配, 如 携 程， 携程网; 途牛， 途牛网;
     if not results:
         # print('3-th iter')
+        stage = '3'
         for ix, token in enumerate(l):
             if s[0] == token[0]:
                 for i in range(ix, l_len):
                     tmp_str = ''.join(l[ix:i+1])    # 把第i个token包含进去
+                    if not s.startswith(tmp_str) and i == ix:
+                        break
                     if not s.startswith(tmp_str) and i > ix:
                         tmp_str = ''.join(l[ix:i])  # 把第i个token剔除，只包含到i-1个token
                         if len(tmp_str) >= s_len / 2:
                             results.append((ix, i-1))
                             break
+            if results:
+                break
 
-    if not results and not is_all_number_word(s):
+    # if not results and not is_all_number_word(s):
+    if not results:
         # print('4-th iter')
+        stage = '4'
         # 放大招：合并字符串，记录每个字符所在的token
         ss = ''
         c_to_t_dic = {}   # char-index : token index
@@ -176,9 +186,15 @@ def find_str_in_list(s, l):
             for i in range(len(token)):
                 c_to_t_dic[len(ss) + i] = t_ix
             ss += token
-
+        # 如果找的是字符串，不是数字
+        # if not is_all_number_word(s):
         # 寻找的字符串最短为2，设定不能寻找单字, 如果原名字长为8，则寻找的最短长度为3
-        for sub_len in range(len(s), max(1, min(len(s)//2 - 1, 2)), -1):
+        search_length = 3
+        if len(s) <= 2:
+            search_length = len(s)
+        elif len(s) <= 7:
+            search_length = 2
+        for sub_len in range(len(s), search_length-1, -1):
             if results:
                 break
             for si in range(0, len(s) - sub_len + 1):
@@ -187,10 +203,14 @@ def find_str_in_list(s, l):
                     tmp_start = ss.find(sub_str)
                     if tmp_start != -1:
                         results.append((c_to_t_dic[tmp_start], c_to_t_dic[tmp_start+sub_len-1]))
+                        stage='4'
                 else:
                     break
 
-    return results
+    if not results:
+        stage = '0'
+
+    return results, stage
 
 
 def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
@@ -202,14 +222,17 @@ def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
     nlu_t1_low = [tok.lower() for tok in nlu_t1]
     for i_wn, wv_str in enumerate(wv_str_list):
         wv_low = wv_str.lower()
-        results = find_str_in_list(wv_low, nlu_t1_low)
+        # stage: 找到子串的阶段，方便调试，字符串表示
+        results, stage = find_str_in_list(wv_low, nlu_t1_low)
         st_idx, ed_idx = results[0] # 选择第1个元素，忽略后面的
 
         g_wvi1_corenlp.append( [st_idx, ed_idx] )
 
-    return g_wvi1_corenlp
+    return g_wvi1_corenlp, stage
 
 def is_all_number_word(s):
+    if not s:
+        return False
     for c in s:
         if c not in '两零一二三四五六七八九十百千万亿0123456789':
             return False
@@ -226,6 +249,13 @@ def getResultForDigit(a):
         return a
     if len(a) > 0 and a[0] == '两':
         a = '二' + a[1:]
+    if len(a) >= 3 and a[-1] in '一二三四五六七八九':
+        if a[-2] == '万': a += '千'
+        elif a[-2] == '千': a += '百'
+        elif a[-2] == '百': a += '十'
+        else: pass
+    # if a[0] in '亿万千百':
+    #     return a
     count = 0 
     result = 0
     tmp = 0
@@ -258,6 +288,7 @@ def getResultForDigit(a):
             elif tmpNum is not None:
                 tmp = tmp * 10 + tmpNum
             count += 1
+
         result = result + tmp
         result = result + Billion
     except:
@@ -305,13 +336,17 @@ def pre_translate(token_list):
     str_to_str_dic = {'北上':'北京上海','北上广':'北京上海广州','苏杭':'苏州杭州','买入':'增持', '两':'2','闽':'福建',
     '国航':'中国国航中国国际航空有限公司','星期':'周','津厦':'天津厦门','达标':'合格','师大':'师范大学','广东话':'粤语',
     '及格':'合格','工大':'工业大学','开卷':'闭卷','符合':'合格','小汽车':'小型轿车','教师':'老师','SAMSUNG':'三星','首都':'北京市',
-    '苏泊尔':'SUPOR','豫':'河南','研究生':'硕士','财经':'经济','BTV':'北京电视台','Duke':'杜克','University':'大学',
+    '苏泊尔':'SUPOR','豫':'河南','研究生':'硕士研究生','财经':'经济','BTV':'北京电视台','Duke':'杜克','University':'大学',
     'Press':'出版社','同意':'通过','AAAAA':'5A','AAAA':'4A','AAA':'3A','经贸':'经济与贸易','CITVC':'中国国际电视总公司',
     '央视':'中央电视台','周一至周五':'工作日','HongKongUniversityofScienceandTechnology':'HKUST','星期天':'周日','星期一':'周一',
     '星期二':'周二','星期三':'周三','星期四':'周四','星期五':'周五','星期六':'周六','建行':'建设银行','招行':'招商银行','工行':'工商银行',
-    '符合规定':'合格'}
+    '符合规定':'合格','广警院':'广东警官学院','国体':'国家体育场','CNFIA':'中国食品工业协会','马钢':'马鞍山钢铁股份有限公司','武大':'武汉大学',
+    '华科':'华中科技大学','医师':'医生','华师':'华中师范大学','首经贸':'首都经济贸易','社科':'社会科学','北大':'北京大学','浙大':'浙江大学',
+    '上交':'上海交通大学','人大':'中国人民大学','南大':'南京大学','辽大':'辽宁大学','广大':'广州大学','厦大':'厦门大学','北师大':'北京师范大学',
+    '中山大学':'中大','西财':'西南财大','东航':'东方航空','国泰':'国泰航空','湖南卫视':'湖南卫视芒果','国图':'国家图书馆','央视':'中央电视台',
+    '三星':'三星电子电脑有限公司','硕博':'硕士博士','本硕博':'本科硕士博士','我国':'中国'}
 
-    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川']   # 和 一 搭配的字，三星，万科，四川
+    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川','能','变','化','起','宁','江']   # 和 一 搭配的字，三星，万科，四川
     # for ix, token in enumerate(token_list):
     ix = -1
     while ix < len(token_list) - 1:
@@ -355,10 +390,7 @@ def pre_translate(token_list):
         if token.startswith('第'):
             tmp_str = '第'
             for i in range(1, len(token)):
-                if token[i] in dic:
-                    tmp_str += str(dic[token[i]])
-                else:
-                    tmp_str += token[i]
+                tmp_str += getResultForDigit(token[1:])
             results.append(tmp_str)
             continue
 
@@ -411,11 +443,16 @@ def pre_translate(token_list):
 
         # 一点六；
 
-        # '二十元';'二十块';"5","角";"四","角钱";"十二","块","五","毛"；"十二点五","元"
+        # '二十元';'二十块';"5","角";"四","角钱";"十二","块","五","毛"；"十二点五","元";
         if token[0] == '角' or token[0] == '毛':
             if results and is_all_number_word(results[-1]):
                 results[-1] = '0.' + results[-1] + '元'
                 continue
+
+        # '五角钱';2角;
+        if (len(token) == 2 and token[0] in dic and token[1] == '角') or (len(token) == 3 and token[0] in dic and token[1:] == '角钱'):
+            results.append('0.'+getResultForDigit(token[0]) + '元')
+            continue
 
         if (token == '块' or token == '元') and 0 < ix < len(token_list)-1:
             if is_all_number_word(token_list[ix-1]) and is_all_number_word(token_list[ix+1]):
@@ -457,7 +494,11 @@ def annotate_example_ws(example, table):
     ann['sql'] = example['sql']
     ann['query'] = sql = copy.deepcopy(example['sql'])
 
+    # 对sql中conds的属性进行排序，重复的在前
+    # conds_sort(ann['sql']['conds'])
+
     conds1 = ann['sql']['conds']    # "conds": [[0, 2, "大黄蜂"], [0, 2, "密室逃生"]]
+
     wv_ann1 = []
     for conds11 in conds1:
         # _wv_ann1 = annotate(str(conds11[2]))
@@ -472,9 +513,11 @@ def annotate_example_ws(example, table):
         # Check whether wv_ann exsits inside question_tok
 
     try:
-        wvi1_corenlp = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
+        # state 变量方便调试
+        wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # wvi1_corenlp = check_wv_tok_in_nlu_tok(wv_ann1, ann['question_tok'])
         ann['wvi_corenlp'] = wvi1_corenlp
+        ann['stage'] = state
     except:
         ann['wvi_corenlp'] = None
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
@@ -526,6 +569,13 @@ if __name__ == '__main__':
 
     if not os.path.isdir(args.dout):
         os.makedirs(args.dout)
+
+    # 加载缩写词对应的词典,对token进行替换
+    # str_to_str_dic = {}
+    # with open('./auxfiles/vocab.txt', encoding='utf8') as fin:
+    #     for line in fin:
+    #         arr = line.split(':')
+    #         str_to_str_dic[arr[0]] = arr[1].strip()
 
     # for split in ['train', 'val', 'test']:
     for split in args.split.split(','):

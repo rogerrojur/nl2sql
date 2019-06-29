@@ -316,8 +316,8 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         # score
         s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv = model(wemb_n, l_n, wemb_h, l_hpu, l_hs,
                                                    g_sn=g_sn, g_sc=g_sc, g_sa=g_sa, g_wn=g_wn, g_dwn=g_dwn, g_wr=g_wr, g_wc=g_wc, g_wo=g_wo, g_wvi=g_wvi, g_wrcn=g_wrcn)
-
         '''
+        print('g_wvi: ', g_wvi)
         print('s_sn: ', s_sn)
         print('s_sc: ', s_sc)
         print('s_sa: ', s_sa)

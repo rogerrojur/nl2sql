@@ -1591,8 +1591,8 @@ def Loss_wr(s_wr, g_wr):
     return loss
 
 def Loss_hrpc(s_hrpc, g_hrpc):
-    #p = torch.sigmoid(s_hrpc)
-    loss = F.cross_entropy(s_hrpc, torch.tensor(g_hrpc).to(device))
+    p = torch.sigmoid(s_hrpc)
+    loss = F.cross_entropy(p, torch.tensor(g_hrpc).to(device))
     return loss
 
 def Loss_nrpc(s_nrpc, g_nrpc):

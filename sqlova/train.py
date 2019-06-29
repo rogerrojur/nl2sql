@@ -545,6 +545,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True)
 
         g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n = get_g(sql_i)
+        g_wrcn = g_r_c_n
         g_wvi_corenlp = get_g_wvi_corenlp(t)
 
         wemb_n, wemb_h, l_n, l_hpu, l_hs, \
@@ -727,6 +728,7 @@ if __name__ == '__main__':
     epoch_best = -1
     for epoch in range(args.tepoch):
         # train
+        
         acc_train, aux_out_train = train(train_loader,
                                          train_table,
                                          model,
@@ -741,6 +743,7 @@ if __name__ == '__main__':
                                          st_pos=0,
                                          path_db=path_wikisql,
                                          dset_name='train')
+        
         # check DEV
         with torch.no_grad():
             acc_dev, results_dev, cnt_list = test(dev_loader,

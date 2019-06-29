@@ -452,7 +452,7 @@ class SNP(nn.Module):
         mL_hs = max(l_hs)
         for b, l_hs1 in enumerate(l_hs):
             #l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
-            c_n[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf
+            s_sn[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf
         
         #s_sn = self.softmax_dim1(s_sn)
 

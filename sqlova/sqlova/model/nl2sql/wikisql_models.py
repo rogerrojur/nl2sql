@@ -387,8 +387,7 @@ class SNP(nn.Module):
 
         #   Penalty
         for b, l_hs1 in enumerate(l_hs):
-            if l_hs1 < mL_hs:
-                att_h[b, l_hs1:] = -10000000000.0
+            att_h[b, l_hs1:] = -10000000000.0
         p_h = self.softmax_dim1(att_h)
 
         if show_p_sn:
@@ -447,13 +446,13 @@ class SNP(nn.Module):
         #    [B, mL_n, 100] *([B, mL_n] -> [B, mL_n, 1] -> [B, mL_n, 100] ) -> [B, 100]
         c_n = torch.mul(wenc_n, p_n.unsqueeze(2).expand_as(wenc_n)).sum(dim=1)
         
+        s_sn = torch.cat([torch.tensor([-10000000000.0] * c_n.size()[0]).view(-1, 1).to(device), self.sn_out(c_n)], dim=1)#add 0 nb of selected col is imposible
+        
         # Penalty
         mL_hs = max(l_hs)
         for b, l_hs1 in enumerate(l_hs):
-            if l_hs1 < mL_hs:#l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
-                c_n[b, l_hs1:] = -10000000000.0#reset the padding value as -inf
-        
-        s_sn = torch.cat([torch.tensor([-10000000000.0] * c_n.size()[0]).view(-1, 1).to(device), self.sn_out(c_n)], dim=1)#add 0 nb of selected col is imposible
+            #l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
+            c_n[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf
         
         #s_sn = self.softmax_dim1(s_sn)
 
@@ -500,8 +499,7 @@ class SCP(nn.Module):
 
         #   Penalty on blank parts
         for b, l_n1 in enumerate(l_n):
-            if l_n1 < mL_n:
-                att_h[b, :, l_n1:] = -10000000000.0
+            att_h[b, :, l_n1:] = -10000000000.0
 
         p_n = self.softmax_dim2(att_h)
         if show_p_sc:
@@ -537,8 +535,8 @@ class SCP(nn.Module):
         # Penalty
         mL_hs = max(l_hs)
         for b, l_hs1 in enumerate(l_hs):
-            if l_hs1 < mL_hs:#l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
-                s_sc[b, l_hs1:] = -10000000000.0#reset the padding value as -inf
+            #l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
+            s_sc[b, l_hs1:] = -10000000000.0#reset the padding value as -inf
                 
         #s_sc = self.softmax_dim1(s_sc)
         
@@ -762,8 +760,8 @@ class WNP(nn.Module):
         # Penalty
         mL_hs = max(l_hs)
         for b, l_hs1 in enumerate(l_hs):
-            if l_hs1 < mL_hs:#l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
-                s_wn[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf include 0 so it need to plus 1
+            #l_hs1 is the number of col in this table, ml_hs is the max nb of col in all tables
+            s_wn[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf include 0 so it need to plus 1
         
         #s_wn = self.softmax_dim1(s_wn) # [B, 1 + 4]
 
@@ -1141,7 +1139,7 @@ class NRPC(nn.Module):
         s_nrpc = torch.cat([torch.tensor([-10000000000.0] * (bS * 2)).view(-1, 2).to(device), s_nrpc], dim = 1)#[bS, 4-1+2=5] but 0 or 1 is impossible
         
         for b in range(bS):
-            s_nrpc[b, wn[b]:] = -10000000000.0#mask to invalid
+            s_nrpc[b, wn[b] + 1:] = -10000000000.0#mask to invalid
         #s_nrpc = self.softmax_dim1(s_nrpc)
         #print('s_nrpc.size(): ', s_nrpc.size())
 

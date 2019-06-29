@@ -1941,7 +1941,11 @@ def generate_sql_q1(sql_i1, tb1):
     
     for aggIdx1, headerIdx1 in zip(sql_i1['agg'], sql_i1['sel']):
         if headerIdx1 >= len(headers):
+            print('-----------------------------------------------error--------------------------------------------')
             print('hIdx: ', headerIdx1, '; headerLen: ', len(headers))
+            print('headers: ', headers)
+            print('sql: ', sql_i1)
+            print('-----------------------------------------------error--------------------------------------------')
         else:
             sql_query_part1 += agg_ops[aggIdx1]
             sql_query_part1 += '(' + headers[headerIdx1] + '),'

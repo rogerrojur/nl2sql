@@ -132,7 +132,11 @@ class Seq2SQL_v1(nn.Module):
             pr_wc = g_wc
         else:
             pr_wc = pred_wc(pr_dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc)
-
+        '''
+        print('pr_hrpc: ', pr_hrpc)
+        print('pr_wrpc: ', pr_wrpc)
+        print('pr_nrpc: ', pr_nrpc)
+        '''
         # wo
         s_wo = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, show_p_wo=show_p_wo)
 
@@ -1120,12 +1124,11 @@ class NRPC(nn.Module):
 
         vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob)], dim=2).squeeze(1)
         s_nrpc = self.nrpc_out(vec)
-        
-        for b in range(bS):
-            s_nrpc[b, wn[b]:] = -10000000000.0#mask to invalid
             
         s_nrpc = torch.cat([torch.tensor([-10000000000.0] * (bS * 2)).view(-1, 2).to(device), s_nrpc], dim = 1)#[bS, 4-1+2=5] but 0 or 1 is impossible
         
+        for b in range(bS):
+            s_nrpc[b, wn[b]:] = -10000000000.0#mask to invalid
         #s_nrpc = self.softmax_dim1(s_nrpc)
         #print('s_nrpc.size(): ', s_nrpc.size())
 
@@ -1274,6 +1277,11 @@ class WOP(nn.Module):
             wenc_hs_ob.append(wenc_hs_ob1)
 
         # list to [B, 4, dim] tensor.
+        '''
+        print('wn: ', wn)
+        print('wc: ', wc)
+        print('wenc_hs_ob', wenc_hs_ob)
+        '''
         wenc_hs_ob = torch.stack(wenc_hs_ob) # list to tensor.
         wenc_hs_ob = wenc_hs_ob.to(device)
 

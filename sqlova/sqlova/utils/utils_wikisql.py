@@ -1940,8 +1940,11 @@ def generate_sql_q1(sql_i1, tb1):
     sql_query_part1 = 'SELECT '
     
     for aggIdx1, headerIdx1 in zip(sql_i1['agg'], sql_i1['sel']):
-        sql_query_part1 += agg_ops[aggIdx1]
-        sql_query_part1 += '(' + headers[headerIdx1] + '),'
+        if headerIdx1 >= len(headers):
+            print('hIdx: ', headerIdx1, '; headerLen: ', len(headers))
+        else:
+            sql_query_part1 += agg_ops[aggIdx1]
+            sql_query_part1 += '(' + headers[headerIdx1] + '),'
     
     sql_query_part1 = sql_query_part1[:-1] + ' '
 
@@ -1959,16 +1962,19 @@ def generate_sql_q1(sql_i1, tb1):
             # check 'OR'
             # number_of_sub_conds = len(sql['conds'][i])
             where_header_idx, where_op_idx, where_str = sql_i1['conds'][i]
-            where_header = headers[where_header_idx]
-            where_op = cond_ops[where_op_idx]
-            if i > 0:
-                if where_rela == 'OR':
-                    sql_query_part2 += ' OR'
-                else:
-                    sql_query_part2 += ' AND'
-                # sql_plus_query_part2 += ' AND'
+            if where_header_idx >= len(headers):
+                print('wherehIdx: ', where_header_idx, '; headerLen: ', len(headers))
+            else:
+                where_header = headers[where_header_idx]
+                where_op = cond_ops[where_op_idx]
+                if i > 0:
+                    if where_rela == 'OR':
+                        sql_query_part2 += ' OR'
+                    else:
+                        sql_query_part2 += ' AND'
+                        # sql_plus_query_part2 += ' AND'
 
-            sql_query_part2 += f" {where_header} {where_op} {where_str}"
+                sql_query_part2 += f" {where_header} {where_op} {where_str}"
 
     sql_query = sql_query_part1 + sql_query_part2
     # sql_plus_query = sql_plus_query_part1 + sql_plus_query_part2

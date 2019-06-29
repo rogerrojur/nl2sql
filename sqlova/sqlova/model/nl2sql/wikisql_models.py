@@ -1599,8 +1599,7 @@ def Loss_nrpc(s_nrpc, g_nrpc):
     for b in range(len(g_nrpc)):
         if g_nrpc[b] == -1:
             g_nrpc[b] = 0
-            s_nrpc[b][0] = 1.0
-            s_nrpc[b][1:] = 0.0
+            s_nrpc[b, 0] = 10000000000.0
     loss = F.cross_entropy(s_nrpc, torch.tensor(g_nrpc).to(device))
     return loss
 
@@ -1608,7 +1607,7 @@ def Loss_wrpc(s_wrpc, g_wrpc):
     for b in range(len(g_wrpc)):
         if g_wrpc[b] == -1:
             g_wrpc[b] = 0
-            s_wrpc[b] = torch.tensor([1.0] + [0] * (s_wrpc.size()[-1] - 1)).to(device)
+            s_wrpc[b, 0] = 10000000000.0
     loss = F.cross_entropy(s_wrpc, torch.tensor(g_wrpc).to(device))
     return loss
 

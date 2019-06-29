@@ -1171,7 +1171,7 @@ def is_whitespace_g_wvi(c):
         return True
     return False
 
-def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index, nlu):
+def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
     """
     - Convert to the string in whilte-space-separated tokens
     - Add-hoc addition.
@@ -1191,7 +1191,7 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index, nlu):
             # Ad-hoc modification of ed_idx to deal with wp-tokenization effect.
             # e.g.) to convert "butler cc (" ->"butler cc (ks)" (dev set 1st question).
             pr_wv_str_wp11 = nlu_wp_t1[st_idx:ed_idx+1]
-            pr_wv_str_wp1.append(pr_wv_str_wp11)
+            pr_wv_str_wp1.append(pr_wv_str_wp11)#最后一个词只有第一个字
 
             st_wh_idx = wp_to_wh_index1[st_idx]
             ed_wh_idx = wp_to_wh_index1[ed_idx]
@@ -1590,7 +1590,8 @@ def get_cnt_wv(g_wn, g_wc, g_wvi, pr_wvi, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            idx1 = argsort(array(g_wc1))
+            #idx1 = argsort(array(g_wc1))
+            idx1 = list( range( g_wn1) )
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:
@@ -1628,7 +1629,8 @@ def get_cnt_wvi_list(g_wn, g_wc, g_wvi, pr_wvi, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            idx1 = argsort(array(g_wc1))
+            idx1 = list( range( g_wn1) )
+            #idx1 = argsort(array(g_wc1))
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:
@@ -1667,7 +1669,8 @@ def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            idx1 = argsort(array(g_wc1))
+            #idx1 = argsort(array(g_wc1))
+            idx1 = list( range( g_wn1) )
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:

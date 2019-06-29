@@ -831,7 +831,7 @@ class WRP(nn.Module):
 
         for b, wn1 in enumerate(pr_wn):
             if wn1 <= 1:
-                s_wr[b] = torch.tensor([10000000000.0, -10000000000.0, -10000000000.0]).to(device)
+                s_wr[b][1:] = -10000000000.0
                 
         #s_wr = self.softmax_dim1(s_wr)
         
@@ -946,7 +946,7 @@ class HRPC(nn.Module):
         
         for B, wr1 in enumerate(wr):
             if wr1 != 2:# if wr is not "or" it means it will not have repeated column
-                s_hrpc[B] = torch.tensor([10000000000.0, -10000000000.0]).to(device)
+                s_hrpc[B][1] = -10000000000.0
                 
         #s_hrpc = self.softmax_dim1(c_n) # [B, 2]
 
@@ -1421,6 +1421,7 @@ class WVP_se(nn.Module):
         # list to [B, 4, dim] tensor.
         wenc_hs_ob = torch.stack(wenc_hs_ob)  # list to tensor.
         wenc_hs_ob = wenc_hs_ob.to(device)
+        #print('wenc_hs_ob: ', wenc_hs_ob.size())
 
 
         # Column attention
@@ -1431,7 +1432,7 @@ class WVP_se(nn.Module):
                            wenc_hs_ob.unsqueeze(3)
                            ).squeeze(3)
         # Penalty for blank part.
-        mL_n = max(l_n)
+        mL_n = max(l_n)#字的长度
         for b, l_n1 in enumerate(l_n):
             if l_n1 < mL_n:
                 att[b, :, l_n1:] = -10000000000.0
@@ -1463,6 +1464,8 @@ class WVP_se(nn.Module):
         #  --> [B, 4, mL_n, dim]
         #  --> [B, 4, dim]
         c_n = torch.mul(wenc_n.unsqueeze(1), p.unsqueeze(3)).sum(dim=2)
+        
+        #print('c_n: ', c_n.size())
 
         # Select observed headers only.
         # Also generate one_hot vector encoding info of the operator
@@ -1489,10 +1492,13 @@ class WVP_se(nn.Module):
         # list to [B, 4, dim] tensor.
         wenc_op = torch.stack(wenc_op)  # list to tensor.
         wenc_op = wenc_op.to(device)
+        #print('wo: ', wo)
+        #print('wenc_op: ', wenc_op.size())
 
         # Now after concat, calculate logits for each token
         # [bS, 5-1, 3*hS] = [bS, 4, 300]
         vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob), self.W_op(wenc_op)], dim=2)
+        #print('vec: ', vec)
 
         # Make extended vector based on encoded nl token containing column and operator information.
         # wenc_n = [bS, mL, 100]
@@ -1500,7 +1506,9 @@ class WVP_se(nn.Module):
         vec1e = vec.unsqueeze(2).expand(-1,-1, mL_n, -1) # [bS, 4, 1, 300]  -> [bS, 4, mL, 300]
         wenc_ne = wenc_n.unsqueeze(1).expand(-1, 4, -1, -1) # [bS, 1, mL, 100] -> [bS, 4, mL, 100]
         vec2 = torch.cat( [vec1e, wenc_ne], dim=3)
-
+        #print('vec1e: ', vec1e.size())
+        #print('vec2: ', vec2.size())
+        #print('---------------------------------------------------------------------------------------------------')
         # now make logits
         s_wv = self.wv_out(vec2) # [bS, 4, mL, 400] -> [bS, 4, mL, 2]
         
@@ -1510,6 +1518,7 @@ class WVP_se(nn.Module):
                 s_wv[b, :, l_n1:, :] = -10000000000.0
                 
         #s_wv = self.softmax_dim2(s_wv)
+        #print('s_wv: ', [e[0] for e in s_wv[0][0].tolist()])
                 
         return s_wv
 
@@ -1537,7 +1546,8 @@ def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     return loss
 
 def Loss_sn(s_sn, g_sn):
-    return F.cross_entropy(s_sn, torch.tensor(g_sn).to(device))
+    p = torch.sigmoid(s_sn)
+    return F.cross_entropy(p, torch.tensor(g_sn).to(device))
 
 def Loss_sc(s_sc, g_sc):
     
@@ -1563,21 +1573,24 @@ def Loss_sa(s_sa, g_sn, g_sa):
             continue
         g_sa1 = g_sa[b]
         s_sa1 = s_sa[b]
-        loss += F.cross_entropy(s_sa1[:g_sn1], torch.tensor(g_sa1).to(device))
+        p = torch.sigmoid(s_sa1[:g_sn1])
+        loss += F.cross_entropy(p, torch.tensor(g_sa1).to(device))
     
     return loss
 
 def Loss_wn(s_wn, g_wn):
-    loss = F.cross_entropy(s_wn, torch.tensor(g_wn).to(device))
-
+    p = torch.sigmoid(s_wn)
+    loss = F.cross_entropy(p, torch.tensor(g_wn).to(device))
     return loss
 
 def Loss_wr(s_wr, g_wr):
-    loss = F.cross_entropy(s_wr, torch.tensor(g_wr).to(device))
+    p = torch.sigmoid(s_wr)
+    loss = F.cross_entropy(p, torch.tensor(g_wr).to(device))
     return loss
 
 def Loss_hrpc(s_hrpc, g_hrpc):
-    loss = F.cross_entropy(s_hrpc, torch.tensor(g_hrpc).to(device))
+    p = torch.sigmoid(s_hrpc)
+    loss = F.cross_entropy(p, torch.tensor(g_hrpc).to(device))
     return loss
 
 def Loss_nrpc(s_nrpc, g_nrpc):
@@ -1621,7 +1634,8 @@ def Loss_wo(s_wo, g_wn, g_wo):
             continue
         g_wo1 = g_wo[b]
         s_wo1 = s_wo[b]
-        loss += F.cross_entropy(s_wo1[:g_wn1], torch.tensor(g_wo1).to(device))
+        p = torch.sigmoid(s_wo1[:g_wn1])
+        loss += F.cross_entropy(p, torch.tensor(g_wo1).to(device))
 
     return loss
 
@@ -1642,11 +1656,13 @@ def Loss_wv_se(s_wv, g_wn, g_wvi):
         g_st1 = g_wvi1[:,0]
         g_ed1 = g_wvi1[:,1]
         # loss from the start position
-        loss += F.cross_entropy(s_wv[b,:g_wn1,:,0], g_st1)
+        p = torch.sigmoid(s_wv[b,:g_wn1,:,0])
+        loss += F.cross_entropy(p, g_st1)
 
         # print("st_login: ", s_wv[b,:g_wn1,:,0], g_st1, loss)
         # loss from the end position
-        loss += F.cross_entropy(s_wv[b,:g_wn1,:,1], g_ed1)
+        p = torch.sigmoid(s_wv[b,:g_wn1,:,1])
+        loss += F.cross_entropy(p, g_ed1)
         # print("ed_login: ", s_wv[b,:g_wn1,:,1], g_ed1, loss)
 
     return loss

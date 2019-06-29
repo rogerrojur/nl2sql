@@ -290,14 +290,16 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         '''
         print('wemb_n: ', torch.tensor(wemb_n).size())
         print('wemb_h: ', torch.tensor(wemb_h).size())
-        print('l_n: ', l_n)
-        print('l_hpu: ', l_hpu)
-        print('l_hs: ', l_hs)
-        print('nlu_tt: ', nlu_tt)
-        print('t_to_tt_idx: ', t_to_tt_idx)
-        print('tt_to_t_idx: ', tt_to_t_idx)
-        print('g_wvi_corenlp', g_wvi_corenlp)
         '''
+        #print('l_n: ', l_n[0])
+        #print('l_hpu: ', l_hpu)
+        #print('l_hs: ', l_hs)
+        #print('nlu_tt: ', nlu_tt[0])
+        
+        #print('t_to_tt_idx: ', t_to_tt_idx)
+        #print('tt_to_t_idx: ', tt_to_t_idx)
+        #print('g_wvi_corenlp', g_wvi_corenlp)
+        
         # wemb_n: natural language embedding
         # wemb_h: header embedding
         # l_n: token lengths of each question
@@ -306,7 +308,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         try:
             #
             g_wvi = get_g_wvi_bert_from_g_wvi_corenlp(t_to_tt_idx, g_wvi_corenlp)#if not exist, it will not train not include the length, so the end value is the start index of this word, not the end index of this word, so it need to add sth
-            #print('g_wvi', g_wvi)
+            #print('g_wvi', g_wvi[0][0])
         except:
             # Exception happens when where-condition is not found in nlu_tt.
             # In this case, that train example is not used.
@@ -316,8 +318,9 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         # score
         s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv = model(wemb_n, l_n, wemb_h, l_hpu, l_hs,
                                                    g_sn=g_sn, g_sc=g_sc, g_sa=g_sa, g_wn=g_wn, g_dwn=g_dwn, g_wr=g_wr, g_wc=g_wc, g_wo=g_wo, g_wvi=g_wvi, g_wrcn=g_wrcn)
+        
+        #print('g_wvi: ', g_wvi[0])
         '''
-        print('g_wvi: ', g_wvi)
         print('s_sn: ', s_sn)
         print('s_sc: ', s_sc)
         print('s_sa: ', s_sa)
@@ -333,9 +336,11 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         
         # Calculate loss & step
         loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn)
-
-        #print('loss: ', loss)
-        
+        '''
+        print('ave_loss', ave_loss)
+        print('loss: ', loss.item())
+        print('cnt: ', cnt)
+        '''
         # Calculate gradient
         if iB % accumulate_gradients == 0: # mode
             # at start, perform zero_grad
@@ -376,7 +381,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         print('pr_wvi: ', pr_wvi)
         '''
         
-        pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_tt, tt_to_t_idx, nlu)
+        pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_tt, tt_to_t_idx)
         '''
         print('pr_wv_str: ', pr_wv_str)
         print('pr_wv_str_wp: ', pr_wv_str_wp)
@@ -441,7 +446,8 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         cnt_wv += sum(cnt_wv1_list)
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
-        print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
+        if iB % 100 == 0:
+            print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
     
     ave_loss = ave_loss / cnt
     acc_sn = cnt_sn / cnt

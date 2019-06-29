@@ -1943,7 +1943,7 @@ def generate_sql_q1(sql_i1, tb1):
         sql_query_part1 += agg_ops[aggIdx1]
         sql_query_part1 += '(' + headers[headerIdx1] + '),'
     
-    sql_query_part1[-1] = ' '
+    sql_query_part1 = sql_query_part1[:-1] + ' '
 
     where_num = len(sql_i1['conds'])
     where_rela = cond_rps[sql_i1['cond_conn_op']]

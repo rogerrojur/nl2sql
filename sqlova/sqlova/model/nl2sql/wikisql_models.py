@@ -1403,7 +1403,9 @@ class WVP_se(nn.Module):
                             return_hidden=True,
                             hc0=None,
                             last_only=False)  # [b, n, dim]
-
+        
+        #print('wenc_n: ', wenc_n.size(), '; wemb_n: ', wemb_n.size(), '; l_n: ', l_n)#l_n is how many 字 in this each question
+        
         wenc_hs = encode_hpu(self.enc_h, wemb_hpu, l_hpu, l_hs)  # [b, hs, dim]
 
         bS = len(l_hs)
@@ -1546,8 +1548,8 @@ def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     return loss
 
 def Loss_sn(s_sn, g_sn):
-    p = torch.sigmoid(s_sn)
-    return F.cross_entropy(p, torch.tensor(g_sn).to(device))
+    #p = torch.sigmoid(s_sn)
+    return F.cross_entropy(s_sn, torch.tensor(g_sn).to(device))
 
 def Loss_sc(s_sc, g_sc):
     
@@ -1573,24 +1575,24 @@ def Loss_sa(s_sa, g_sn, g_sa):
             continue
         g_sa1 = g_sa[b]
         s_sa1 = s_sa[b]
-        p = torch.sigmoid(s_sa1[:g_sn1])
-        loss += F.cross_entropy(p, torch.tensor(g_sa1).to(device))
+        #p = torch.sigmoid(s_sa1[:g_sn1])
+        loss += F.cross_entropy(s_sa1[:g_sn1], torch.tensor(g_sa1).to(device))
     
     return loss
 
 def Loss_wn(s_wn, g_wn):
-    p = torch.sigmoid(s_wn)
-    loss = F.cross_entropy(p, torch.tensor(g_wn).to(device))
+    #p = torch.sigmoid(s_wn)
+    loss = F.cross_entropy(s_wn, torch.tensor(g_wn).to(device))
     return loss
 
 def Loss_wr(s_wr, g_wr):
-    p = torch.sigmoid(s_wr)
-    loss = F.cross_entropy(p, torch.tensor(g_wr).to(device))
+    #p = torch.sigmoid(s_wr)
+    loss = F.cross_entropy(s_wr, torch.tensor(g_wr).to(device))
     return loss
 
 def Loss_hrpc(s_hrpc, g_hrpc):
-    p = torch.sigmoid(s_hrpc)
-    loss = F.cross_entropy(p, torch.tensor(g_hrpc).to(device))
+    #p = torch.sigmoid(s_hrpc)
+    loss = F.cross_entropy(s_hrpc, torch.tensor(g_hrpc).to(device))
     return loss
 
 def Loss_nrpc(s_nrpc, g_nrpc):
@@ -1634,8 +1636,8 @@ def Loss_wo(s_wo, g_wn, g_wo):
             continue
         g_wo1 = g_wo[b]
         s_wo1 = s_wo[b]
-        p = torch.sigmoid(s_wo1[:g_wn1])
-        loss += F.cross_entropy(p, torch.tensor(g_wo1).to(device))
+        #p = torch.sigmoid(s_wo1[:g_wn1])
+        loss += F.cross_entropy(s_wo1[:g_wn1], torch.tensor(g_wo1).to(device))
 
     return loss
 
@@ -1656,13 +1658,13 @@ def Loss_wv_se(s_wv, g_wn, g_wvi):
         g_st1 = g_wvi1[:,0]
         g_ed1 = g_wvi1[:,1]
         # loss from the start position
-        p = torch.sigmoid(s_wv[b,:g_wn1,:,0])
-        loss += F.cross_entropy(p, g_st1)
+        #p = torch.sigmoid(s_wv[b,:g_wn1,:,0])
+        loss += F.cross_entropy(s_wv[b,:g_wn1,:,0], g_st1)
 
         # print("st_login: ", s_wv[b,:g_wn1,:,0], g_st1, loss)
         # loss from the end position
-        p = torch.sigmoid(s_wv[b,:g_wn1,:,1])
-        loss += F.cross_entropy(p, g_ed1)
+        #p = torch.sigmoid(s_wv[b,:g_wn1,:,1])
+        loss += F.cross_entropy(s_wv[b,:g_wn1,:,1], g_ed1)
         # print("ed_login: ", s_wv[b,:g_wn1,:,1], g_ed1, loss)
 
     return loss

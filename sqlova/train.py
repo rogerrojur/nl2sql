@@ -231,7 +231,8 @@ def get_models(args, BERT_PT_PATH, trained=False, path_model_bert=None, path_mod
 
 def get_data(path_wikisql, args):
     train_data, train_table, dev_data, dev_table, _, _ = load_wikisql(path_wikisql, args.toy_model, args.toy_size, no_w2i=True, no_hs_tok=True)
-    train_loader, dev_loader = get_loader_wikisql(train_data, dev_data, args.bS, shuffle_train=True)
+    num_workers = 8 if args.user == 1 else 0
+    train_loader, dev_loader = get_loader_wikisql(train_data, dev_data, args.bS, shuffle_train=True, num_workers=num_workers)
 
     return train_data, train_table, dev_data, dev_table, train_loader, dev_loader
 
@@ -479,16 +480,16 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
         if iB % 100 == 0:
-            # logger.info('Loss_sn: %.4f' % Loss_sn(s_sn, g_sn))
-            # logger.info('Loss_sc: %.4f' % Loss_sc(s_sc, g_sc))
-            # logger.info('Loss_sa: %.4f' % Loss_sa(s_sa, g_sn, g_sa))
-            # logger.info('Loss_wn: %.4f' % Loss_wn(s_wn, g_wn))
-            # logger.info('Loss_wr: %.4f' % Loss_wr(s_wr, g_wr))
-            # logger.info('Loss_hrpc: %.4f' % Loss_hrpc(s_hrpc, [0 if e[0] == -1 else 1 for e in g_wrcn]))
-            # logger.info('Loss_wrpc: %.4f' % Loss_wrpc(s_wrpc, [e[0] for e in g_wrcn]))
-            # logger.info('Loss_wc: %.4f' % Loss_wc(s_wc, g_wc))
-            # logger.info('Loss_wo: %.4f' % Loss_wo(s_wo, g_wn, g_wo))
-            # logger.info('Loss_wv_se: %.4f' % Loss_wv_se(s_wv, g_wn, g_wvi))
+            logger.info('Loss_sn: %.4f' % Loss_sn(s_sn, g_sn))
+            logger.info('Loss_sc: %.4f' % Loss_sc(s_sc, g_sc))
+            logger.info('Loss_sa: %.4f' % Loss_sa(s_sa, g_sn, g_sa))
+            logger.info('Loss_wn: %.4f' % Loss_wn(s_wn, g_wn))
+            logger.info('Loss_wr: %.4f' % Loss_wr(s_wr, g_wr))
+            logger.info('Loss_hrpc: %.4f' % Loss_hrpc(s_hrpc, [0 if e[0] == -1 else 1 for e in g_wrcn]))
+            logger.info('Loss_wrpc: %.4f' % Loss_wrpc(s_wrpc, [e[0] for e in g_wrcn]))
+            logger.info('Loss_wc: %.4f' % Loss_wc(s_wc, g_wc))
+            logger.info('Loss_wo: %.4f' % Loss_wo(s_wo, g_wn, g_wo))
+            logger.info('Loss_wv_se: %.4f' % Loss_wv_se(s_wv, g_wn, g_wvi))
             logger.info('%d - th data batch -> loss: %.4f; acc_sn: %.4f; acc_sc: %.4f; acc_sa: %.4f; acc_wn: %.4f; acc_wr: %.4f; acc_wc: %.4f; acc_wo: %.4f; acc_wvi: %.4f; acc_wv: %.4f; acc_lx: %.4f; acc_x %.4f;' % 
                 (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt))
             
@@ -605,7 +606,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
                             num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers)
         try:
             g_wvi = get_g_wvi_bert_from_g_wvi_corenlp(t_to_tt_idx, g_wvi_corenlp)
-            g_wv_str, g_wv_str_wp = convert_pr_wvi_to_string(g_wvi, nlu_t, nlu_tt, tt_to_t_idx, nlu)
+            g_wv_str, g_wv_str_wp = convert_pr_wvi_to_string(g_wvi, nlu_t, nlu_tt, tt_to_t_idx)
 
         except:
             # Exception happens when where-condition is not found in nlu_tt.
@@ -630,7 +631,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
 
             # prediction
             pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv)
-            pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_tt, tt_to_t_idx, nlu)
+            pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_tt, tt_to_t_idx)
             # g_sql_i = generate_sql_i(g_sc, g_sa, g_wn, g_wc, g_wo, g_wv_str, nlu)
             pr_sql_i = generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv_str, nlu)
         else:

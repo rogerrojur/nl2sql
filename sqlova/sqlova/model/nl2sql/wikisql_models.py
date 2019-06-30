@@ -46,10 +46,11 @@ class Seq2SQL_v1(nn.Module):
         
         self.wcp = WCP(iS, hS, lS, dr)
         self.wop = WOP(iS, hS, lS, dr, n_cond_ops)
-        self.wvp = WVP_se(iS, hS, lS, dr, n_cond_ops, old=old) # start-end-search-discriminative model
+        self.wvp1 = WVP_se(iS, hS, lS, dr, n_cond_ops, old=old) # start-end-search-discriminative model
+        self.wvp2 = WVP_se2(iS, hS, lS, dr, n_cond_ops, old=old)
 
 
-    def forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs,
+    def forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wemb_v, l_npu, l_token,
                 g_sn=None, g_sc=None, g_sa=None, g_wr=None, g_wn=None, g_dwn=None, g_wc=None, g_wo=None, g_wvi=None, g_wrcn=None,
                 show_p_sn=False, show_p_sc=False, show_p_sa=False, show_p_wr=False, show_p_hrpc=False, show_p_wrpc=False, show_p_nrpc=False,
                 show_p_wn=False, show_p_wc=False, show_p_wo=False, show_p_wv=False):
@@ -146,9 +147,18 @@ class Seq2SQL_v1(nn.Module):
             pr_wo = pred_wo(pr_wn, s_wo)
 
         # wv
-        s_wv = self.wvp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, show_p_wv=show_p_wv)
+        s_wv1 = self.wvp1(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, show_p_wv=show_p_wv)
+        
+        if g_wvi:
+            pr_wvi1 = [[e[0] for e in l] for l in g_wvi]
+        else:
+            pr_wvi1 = pred_wvi1(pr_wn, s_wv1)
+        
+        s_wv2 = self.wvp2(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi1=pr_wvi1, show_p_wv=show_p_wv)#it represent 长度-1 the g_wvi will convert to [start_index, length-1]
+        
+        
 
-        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv
+        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2
 
     def beam_forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, engine, tb,
                      nlu_t, nlu_wp_t, wp_to_wh_index, nlu,
@@ -1382,8 +1392,9 @@ class WVP_se(nn.Module):
         else:
             self.wv_out = nn.Sequential(
                 nn.Linear(4 * hS, hS),
+                nn.GroupNorm(2, 4),
                 nn.Tanh(),
-                nn.Linear(hS, 2)
+                nn.Linear(hS, 1)
             )
         # self.wv_out = nn.Sequential(
         #     nn.Linear(3 * hS, hS),
@@ -1395,14 +1406,11 @@ class WVP_se(nn.Module):
         self.softmax_dim2 = nn.Softmax(dim=2)
         self.softmax_dim3 = nn.Softmax(dim=3)
 
-    def forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn, wc, wo, wenc_n=None, show_p_wv=False):
+    def forward(self, wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn, wc, wo, wenc_n=None, show_p_wv=False):
 
         # Encode
         if not wenc_n:
-            wenc_n, hout, cout = encode(self.enc_n, wemb_n, l_n,
-                            return_hidden=True,
-                            hc0=None,
-                            last_only=False)  # [b, n, dim]
+            wenc_n = encode_npu(self.enc_n, wemb_v, l_npu, l_token)
         
         #print('wenc_n: ', wenc_n.size(), '; wemb_n: ', wemb_n.size(), '; l_n: ', l_n)#l_n is how many 字 in this each question
         
@@ -1425,7 +1433,7 @@ class WVP_se(nn.Module):
         wenc_hs_ob = wenc_hs_ob.to(device)
         #print('wenc_hs_ob: ', wenc_hs_ob.size())
 
-
+        # 学！结尾词对开头词的attention
         # Column attention
         # [B, 1, mL_n, dim] * [B, 4, dim, 1]
         #  -> [B, 4, mL_n, 1] -> [B, 4, mL_n]
@@ -1434,8 +1442,8 @@ class WVP_se(nn.Module):
                            wenc_hs_ob.unsqueeze(3)
                            ).squeeze(3)
         # Penalty for blank part.
-        mL_n = max(l_n)#字的长度
-        for b, l_n1 in enumerate(l_n):
+        mL_n = max(l_token)#字的长度
+        for b, l_n1 in enumerate(l_token):
             if l_n1 < mL_n:
                 att[b, :, l_n1:] = -10000000000.0
 
@@ -1490,7 +1498,8 @@ class WVP_se(nn.Module):
             wenc_op1 = wenc_op1.scatter(1, torch.tensor(idx_scatter), 1)
 
             wenc_op.append(wenc_op1)
-
+        
+        #print(wenc_op[0].size())
         # list to [B, 4, dim] tensor.
         wenc_op = torch.stack(wenc_op)  # list to tensor.
         wenc_op = wenc_op.to(device)
@@ -1500,7 +1509,7 @@ class WVP_se(nn.Module):
         # Now after concat, calculate logits for each token
         # [bS, 5-1, 3*hS] = [bS, 4, 300]
         vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob), self.W_op(wenc_op)], dim=2)
-        #print('vec: ', vec)
+        #print('vec: ', vec.size())
 
         # Make extended vector based on encoded nl token containing column and operator information.
         # wenc_n = [bS, mL, 100]
@@ -1512,19 +1521,224 @@ class WVP_se(nn.Module):
         #print('vec2: ', vec2.size())
         #print('---------------------------------------------------------------------------------------------------')
         # now make logits
-        s_wv = self.wv_out(vec2) # [bS, 4, mL, 400] -> [bS, 4, mL, 2]
+        s_wv1 = self.wv_out(vec2).squeeze(3) # [bS, 4, mL, 400] -> [bS, 4, mL, 1] -> [bS, 4, mL]
         
         # penalty for spurious tokens
-        for b, l_n1 in enumerate(l_n):
+        for b, l_n1 in enumerate(l_token):
             if l_n1 < mL_n:
-                s_wv[b, :, l_n1:, :] = -10000000000.0
+                s_wv1[b, :, l_n1:] = -10000000000.0
                 
         #s_wv = self.softmax_dim2(s_wv)
         #print('s_wv: ', [e[0] for e in s_wv[0][0].tolist()])
                 
-        return s_wv
+        return s_wv1
+    
+class WVP_se2(nn.Module):
+    """
+    Discriminative model
+    Get start and end.
+    Here, classifier for [ [투수], [팀1], [팀2], [연도], ...]
+    Input:      Encoded nlu & selected column.
+    Algorithm: Encoded nlu & selected column. -> classifier -> mask scores -> ...
+    """
+    def __init__(self, iS=300, hS=100, lS=2, dr=0.3, n_cond_ops=4, old=False):
+        super(WVP_se2, self).__init__()
+        self.iS = iS
+        self.hS = hS
+        self.lS = lS
+        self.dr = dr
+        self.n_cond_ops = n_cond_ops
 
-def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn):
+        self.mL_w = 4  # max where condition number
+
+        self.enc_h = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
+                             num_layers=lS, batch_first=True,
+                             dropout=dr, bidirectional=True)
+
+        self.enc_n = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
+                             num_layers=lS, batch_first=True,
+                             dropout=dr, bidirectional=True)
+
+        self.W_att = nn.Linear(hS, hS)
+        self.W_c = nn.Linear(hS, hS)
+        self.W_hs = nn.Linear(hS, hS)
+        self.W_op = nn.Linear(n_cond_ops, hS)
+
+        # self.W_n = nn.Linear(hS, hS)
+        if old:
+            self.wv_out =  nn.Sequential(
+            nn.Linear(4 * hS, 2)
+            )
+        else:
+            self.wv_out = nn.Sequential(
+                nn.Linear(4 * hS, hS),
+                nn.GroupNorm(2, 4),
+                nn.Tanh(),
+                nn.Linear(hS, 1)
+            )
+        # self.wv_out = nn.Sequential(
+        #     nn.Linear(3 * hS, hS),
+        #     nn.Tanh(),
+        #     nn.Linear(hS, self.gdkL)
+        # )
+
+        self.softmax_dim1 = nn.Softmax(dim=1)
+        self.softmax_dim2 = nn.Softmax(dim=2)
+        self.softmax_dim3 = nn.Softmax(dim=3)
+
+    def forward(self, wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn, wc, wo, wvi1, wenc_n=None, show_p_wv=False):
+
+        # Encode
+        if not wenc_n:
+            wenc_n = encode_npu(self.enc_n, wemb_v, l_npu, l_token)
+        
+        #print('wenc_n: ', wenc_n.size(), '; wemb_n: ', wemb_n.size(), '; l_n: ', l_n)#l_n is how many 字 in this each question
+        
+        wenc_hs = encode_hpu(self.enc_h, wemb_hpu, l_hpu, l_hs)  # [b, hs, dim]
+
+        bS = len(l_hs)
+        mvl = 8#max value length
+
+        wenc_hs_ob = []  # observed hs
+
+        for b in range(bS):
+            # [[...], [...]]
+            # Pad list to maximum number of selections
+            real = [wenc_hs[b, col] for col in wc[b]]
+            pad = (self.mL_w - wn[b]) * [wenc_hs[b, 0]]  # this padding could be wrong. Test with zero padding later.
+            wenc_hs_ob1 = torch.stack(real + pad)  # It is not used in the loss function.
+            wenc_hs_ob.append(wenc_hs_ob1)
+
+        # list to [B, 4, dim] tensor.
+        wenc_hs_ob = torch.stack(wenc_hs_ob)  # list to tensor.
+        wenc_hs_ob = wenc_hs_ob.to(device)
+        #print('wenc_hs_ob: ', wenc_hs_ob.size())
+
+        # 学！结尾词对开头词的attention
+        # Column attention
+        # [B, 1, mL_n, dim] * [B, 4, dim, 1]
+        #  -> [B, 4, mL_n, 1] -> [B, 4, mL_n]
+        # multiplication bewteen NLq-tokens and  selected column
+        att = torch.matmul(self.W_att(wenc_n).unsqueeze(1),
+                           wenc_hs_ob.unsqueeze(3)
+                           ).squeeze(3)
+        # Penalty for blank part.
+        mL_n = max(l_token)#字的长度
+        for b, l_n1 in enumerate(l_token):
+            if l_n1 < mL_n:
+                att[b, :, l_n1:] = -10000000000.0
+
+        p = self.softmax_dim2(att)  # p( n| selected_col )
+
+        if show_p_wv:
+            # p = [b, hs, n]
+            if p.shape[0] != 1:
+                raise Exception("Batch size should be 1.")
+            fig=figure(2001)
+            # subplot(6,2,7)
+            subplot2grid((7,2), (5, 1), rowspan=2)
+            cla()
+            _color='rgbkcm'
+            _symbol='.......'
+            for i_wn in range(self.mL_w):
+                color_idx = i_wn % len(_color)
+                plot(p[0][i_wn][:].data.numpy() - i_wn, '--'+_symbol[color_idx]+_color[color_idx], ms=7)
+
+            title('wv: p_n for selected h')
+            grid(True)
+            fig.tight_layout()
+            fig.canvas.draw()
+            show()
+
+
+        # [B, 1, mL_n, dim] * [B, 4, mL_n, 1]
+        #  --> [B, 4, mL_n, dim]
+        #  --> [B, 4, dim]
+        c_n = torch.mul(wenc_n.unsqueeze(1), p.unsqueeze(3)).sum(dim=2)
+        
+        #print('c_n: ', c_n.size())
+
+        # Select observed headers only.
+        # Also generate one_hot vector encoding info of the operator
+        # [B, 4, dim]
+        wenc_op = []
+        for b in range(bS):
+            # [[...], [...]]
+            # Pad list to maximum number of selections
+            wenc_op1 = torch.zeros(self.mL_w, self.n_cond_ops)
+            wo1 = wo[b]
+            idx_scatter = []
+            l_wo1 = len(wo1)
+            for i_wo11 in range(self.mL_w):
+                if i_wo11 < l_wo1:
+                    wo11 = wo1[i_wo11]
+                    idx_scatter.append([int(wo11)])
+                else:
+                    idx_scatter.append([0]) # not used anyway
+
+            wenc_op1 = wenc_op1.scatter(1, torch.tensor(idx_scatter), 1)
+
+            wenc_op.append(wenc_op1)
+        
+        #print(wenc_op[0].size())
+        # list to [B, 4, dim] tensor.
+        wenc_op = torch.stack(wenc_op)  # list to tensor.
+        wenc_op = wenc_op.to(device)
+        #print('wo: ', wo)
+        #print('wenc_op: ', wenc_op.size())
+
+        # Now after concat, calculate logits for each token
+        # [bS, 5-1, 3*hS] = [bS, 4, 300]
+        vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob), self.W_op(wenc_op)], dim=2)
+        #print('vec: ', vec.size())
+
+        # Make extended vector based on encoded nl token containing column and operator information.
+        # wenc_n = [bS, mL, 100]
+        # vec2 = [bS, 4, mL, 400]
+        vec1e = vec.unsqueeze(2).expand(-1,-1, mvl, -1) # [bS, 4, 1, 300]  -> [bS, 4, mvl, 300]
+        
+        wenc_vs_ob = [] # observed hs
+        for b in range(bS):
+            # [[...], [...]]
+            # Pad list to maximum number of selections
+            big_real = []
+            for wc in range(wn[b]):
+                real = []
+                for idx in range(wvi1[b][wc], l_token[b]):
+                    real.append(wenc_n[b, idx])
+                    real = real[:mvl]
+                pad = (mvl - len(real)) * [wenc_n.new_zeros(wenc_n.size()[-1])] # this padding could be wrong. Test with zero padding later. wn[b] is an int to indicate how many cols are selected
+                big_real1 = torch.stack(real + pad) # It is not used in the loss function.
+                big_real.append(big_real1)
+            big_pad = (self.mL_w - wn[b]) * [wenc_n.new_zeros(mvl, wenc_n.size()[-1])]
+            wenc_vs_ob1 = torch.stack(big_real + big_pad)
+            wenc_vs_ob.append(wenc_vs_ob1)
+
+        # list to [B, 4, mvl, dim] tensor.
+        wenc_vs_ob = torch.stack(wenc_vs_ob) # list to tensor.
+        wenc_ne = wenc_vs_ob.to(device)
+        
+        vec2 = torch.cat( [vec1e, wenc_ne], dim=3)
+        #print('vec1e: ', vec1e.size())
+        #print('vec2: ', vec2.size())
+        #print('---------------------------------------------------------------------------------------------------')
+        # now make logits
+        s_wv2 = self.wv_out(vec2).squeeze(3) # [bS, 4, mvl, 400] -> [bS, 4, mvl, 1] -> [bS, 4, mvl]
+        #print(s_wv2)
+        
+        # penalty for spurious tokens
+        for b, l_n1 in enumerate(l_token):
+            for wc in range(wn[b]):
+                if l_n1 - wvi1[b][wc] < mvl:
+                    s_wv2[b, wc, l_n1 - wvi1[b][wc]:] = -10000000000.0#mask all of invalid words
+            s_wv2[b, wn[b]:] = -10000000000.0
+                
+        #s_wv = self.softmax_dim2(s_wv)
+        #print('s_wv: ', [e[0] for e in s_wv[0][0].tolist()])
+                
+        return s_wv2
+
+def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn):
     """
 
     :param s_wv: score  [ B, n_conds, T, score]
@@ -1543,7 +1757,7 @@ def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     loss += Loss_nrpc(s_nrpc, [e[1] for e in g_wrcn])
     loss += Loss_wc(s_wc, g_wc)
     loss += Loss_wo(s_wo, g_wn, g_wo)
-    loss += Loss_wv_se(s_wv, g_wn, g_wvi)
+    loss += Loss_wv_se(s_wv1, s_wv2, g_wn, g_wvi)
 
     return loss
 
@@ -1640,13 +1854,16 @@ def Loss_wo(s_wo, g_wn, g_wo):
 
     return loss
 
-def Loss_wv_se(s_wv, g_wn, g_wvi):
+def Loss_wv_se(s_wv1, s_wv2, g_wn, g_wvi):
     """
     s_wv:   [bS, 4, mL, 2], 4 stands for maximum # of condition, 2 tands for start & end logits.
     g_wvi:  [ [1, 3, 2], [4,3] ] (when B=2, wn(b=1) = 3, wn(b=2) = 2).
     """
     loss = 0
+    loss_begin = 0
+    loss_end = 0
     # g_wvi = torch.tensor(g_wvi).to(device)
+    batchSize = len(g_wvi)
     for b, g_wvi1 in enumerate(g_wvi):
         # for i_wn, g_wvi11 in enumerate(g_wvi1):
 
@@ -1655,17 +1872,20 @@ def Loss_wv_se(s_wv, g_wn, g_wvi):
             continue
         g_wvi1 = torch.tensor(g_wvi1).to(device)
         g_st1 = g_wvi1[:,0]
-        g_ed1 = g_wvi1[:,1]
+        g_len1 = g_wvi1[:,1]
         # loss from the start position
         #p = torch.sigmoid(s_wv[b,:g_wn1,:,0])
-        loss += F.cross_entropy(s_wv[b,:g_wn1,:,0], g_st1)
+        loss_begin += F.cross_entropy(s_wv1[b,:g_wn1], g_st1)
 
-        # print("st_login: ", s_wv[b,:g_wn1,:,0], g_st1, loss)
+        # print("st_login: ", s_wv[b,:g_wn1], g_st1, loss)
         # loss from the end position
         #p = torch.sigmoid(s_wv[b,:g_wn1,:,1])
-        loss += F.cross_entropy(s_wv[b,:g_wn1,:,1], g_ed1)
-        # print("ed_login: ", s_wv[b,:g_wn1,:,1], g_ed1, loss)
-
+        loss_end += F.cross_entropy(s_wv2[b,:g_wn1], g_len1)
+        # print("len_login: ", s_wv[b,:g_wn1], g_len1, loss)
+    
+    loss = loss_begin + loss_end
+    #print('Loss_wv_se: ', loss.item() / batchSize, '; loss_begin: ', loss_begin.item() / batchSize, '; loss_len: ', loss_end.item() / batchSize)
+    
     return loss
 
 

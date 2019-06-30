@@ -27,10 +27,42 @@ from sqlnet.dbengine import DBEngine
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+################################################################
+# 设置logging,同时输出到文件和屏幕
+import logging
+
+logger = logging.getLogger()  # 不加名称设置root logger
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s: - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S')
+
+# 使用FileHandler输出到文件
+if not os.path.exists('log'):
+    os.mkdirs('log')
+fh = logging.FileHandler('log/log.txt')
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+
+# 使用StreamHandler输出到屏幕
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
+
+# 添加两个Handler
+logger.addHandler(ch)
+logger.addHandler(fh)
+# logger.info('this is info message')
+################################################################
+
+
 def construct_hyper_param(parser):
     parser.add_argument('--tepoch', default=200, type=int)
     parser.add_argument("--bS", default=32, type=int,
                         help="Batch size")
+    parser.add_argument("--user", default=0, type=int,
+                        help="0: luokai, 1: jinhao, 2: liuchao")
     parser.add_argument("--accumulate_gradients", default=1, type=int,
                         help="The number of accumulation of backpropagation to effectivly increase the batch size.")
     parser.add_argument('--fine_tune',
@@ -447,7 +479,20 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
         if iB % 100 == 0:
-            print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
+            # logger.info('Loss_sn: %.4f' % Loss_sn(s_sn, g_sn))
+            # logger.info('Loss_sc: %.4f' % Loss_sc(s_sc, g_sc))
+            # logger.info('Loss_sa: %.4f' % Loss_sa(s_sa, g_sn, g_sa))
+            # logger.info('Loss_wn: %.4f' % Loss_wn(s_wn, g_wn))
+            # logger.info('Loss_wr: %.4f' % Loss_wr(s_wr, g_wr))
+            # logger.info('Loss_hrpc: %.4f' % Loss_hrpc(s_hrpc, [0 if e[0] == -1 else 1 for e in g_wrcn]))
+            # logger.info('Loss_wrpc: %.4f' % Loss_wrpc(s_wrpc, [e[0] for e in g_wrcn]))
+            # logger.info('Loss_wc: %.4f' % Loss_wc(s_wc, g_wc))
+            # logger.info('Loss_wo: %.4f' % Loss_wo(s_wo, g_wn, g_wo))
+            # logger.info('Loss_wv_se: %.4f' % Loss_wv_se(s_wv, g_wn, g_wvi))
+            logger.info('%d - th data batch -> loss: %.4f; acc_sn: %.4f; acc_sc: %.4f; acc_sa: %.4f; acc_wn: %.4f; acc_wr: %.4f; acc_wc: %.4f; acc_wo: %.4f; acc_wvi: %.4f; acc_wv: %.4f; acc_lx: %.4f; acc_x %.4f;' % 
+                (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt))
+            
+            # print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
     
     ave_loss = ave_loss / cnt
     acc_sn = cnt_sn / cnt
@@ -696,6 +741,8 @@ if __name__ == '__main__':
 
     ## 2. Paths
     path_h = 'D:\\tianChi\\nl2sql\\sqlova\\wikisql'
+    if args.user == 1:
+        path_h = './wikisql'
     path_wikisql = os.path.join(path_h, 'data', 'tianchi')
     BERT_PT_PATH = path_wikisql
 

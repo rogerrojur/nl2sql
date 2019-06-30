@@ -91,12 +91,12 @@ def load_w2i_wemb(path_wikisql, bert=False):
         wemb = load(os.path.join(path_wikisql, 'wemb.npy'), )
     return w2i, wemb
 
-def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False):
+def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False, num_workers=4):
     train_loader = torch.utils.data.DataLoader(
         batch_size=bS,
         dataset=data_train,
         shuffle=shuffle_train,
-        num_workers=0,
+        num_workers=num_workers,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -104,7 +104,7 @@ def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev
         batch_size=bS,
         dataset=data_dev,
         shuffle=shuffle_dev,
-        num_workers=0,
+        num_workers=num_workers,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 

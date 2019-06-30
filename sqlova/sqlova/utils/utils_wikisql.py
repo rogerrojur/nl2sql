@@ -91,12 +91,12 @@ def load_w2i_wemb(path_wikisql, bert=False):
         wemb = load(os.path.join(path_wikisql, 'wemb.npy'), )
     return w2i, wemb
 
-def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False, num_workers=4):
+def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False):
     train_loader = torch.utils.data.DataLoader(
         batch_size=bS,
         dataset=data_train,
         shuffle=shuffle_train,
-        num_workers=num_workers,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -104,7 +104,7 @@ def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev
         batch_size=bS,
         dataset=data_dev,
         shuffle=shuffle_dev,
-        num_workers=num_workers,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -260,7 +260,7 @@ def encode(lstm, wemb_l, l, return_hidden=False, hc0=None, last_only=False):
 
 
     if return_hidden:
-        # hout.shape = [number_of_directoin * num_of_layer, seq_len(=batch size), dim * number_of_direction ] w/ batch_first.. w/o batch_first? I need to see.
+        # hout.shape = [batch, seq_len, num_of_layer * number_of_direction ] w/ batch_first.. w/o batch_first? I need to see.
         hout = hout[:, perm_idx_inv].to(device)
         cout = cout[:, perm_idx_inv].to(device)  # Is this correct operation?
 
@@ -286,12 +286,18 @@ def encode_hpu(lstm, wemb_hpu, l_hpu, l_hs):
 
     # Re-pack according to batch.
     # ret = [B_NLq, max_len_headers_all, dim_lstm]
+    # sum(hs) = len(l_hpu) so l_hpu 是展开来的col 长度列表 也即是 每一个col多少字， l_hs是这个玩意的大小是有多少个col
     st = 0
+    #print('l_hpu: ', len(l_hpu), sum(l_hs), '; wenc_hs: ', wenc_hs.size(), '; wenc_hpu: ', wenc_hpu.size(), '; wemb_hpu: ', wemb_hpu.size())
     for i, l_hs1 in enumerate(l_hs):
         wenc_hs[i, :l_hs1] = wenc_hpu[st:(st + l_hs1)]
         st += l_hs1
 
     return wenc_hs
+
+def encode_npu(lstm, wemb_npu, l_npu, l_token):
+    return encode_hpu(lstm, wemb_npu, l_npu, l_token)
+
 
 
 # Statistics -------------------------------------------------------------------------------------------------------------------
@@ -599,7 +605,7 @@ def get_bert_output_s2s(model_bert, tokenizer, nlu_t, hds, sql_vocab, max_seq_le
     tok_to_orig_index: inverse map.
 
     """
-
+    
 
     l_n = []
     l_hs = []  # The length of columns for each batch
@@ -613,12 +619,12 @@ def get_bert_output_s2s(model_bert, tokenizer, nlu_t, hds, sql_vocab, max_seq_le
     i_hds = []
     i_sql_vocab = []
 
-    doc_tokens = []
     nlu_tt = []
 
     t_to_tt_idx = []
     tt_to_t_idx = []
     for b, nlu_t1 in enumerate(nlu_t):
+        
 
         hds1 = hds[b]
         l_hs.append(len(hds1))
@@ -713,6 +719,10 @@ def get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length):
     tok_to_orig_index: inverse map.
 
     """
+    
+    l_npu = [] #(total number of tokens, how many tokens of token in this token)
+    l_token = [] #how many tokens in this sentense
+    i_tks = []
 
     l_n = []
     l_hs = []  # The length of columns for each batch
@@ -725,12 +735,14 @@ def get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length):
     i_nlu = []  # index to retreive the position of contextual vector later.
     i_hds = []
 
-    doc_tokens = []
     nlu_tt = []
 
     t_to_tt_idx = []
     tt_to_t_idx = []
     for b, nlu_t1 in enumerate(nlu_t):#for each datum
+        l_token.append(len(nlu_t1))
+        i_tks1 = []
+        st = 1
 
         hds1 = hds[b]#header: column names
         l_hs.append(len(hds1))#how many columns in this table
@@ -744,6 +756,9 @@ def get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length):
             t_to_tt_idx1.append(
                 len(nlu_tt1))  # all_doc_tokens[ indicate the start position of original 'white-space' tokens.
             sub_tokens = tokenizer.tokenize(token)
+            i_tks1.append((st, st + len(sub_tokens)))
+            st += len(sub_tokens)
+            l_npu.append(len(sub_tokens))
             for sub_token in sub_tokens:
                 tt_to_t_idx1.append(i)
                 nlu_tt1.append(sub_token)  # all_doc_tokens are further tokenized using WordPiece tokenizer
@@ -751,7 +766,8 @@ def get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length):
         nlu_tt.append(nlu_tt1)#all smallest peceices tokens in each question, and it is list of list, first dimension is question, second is token in each question
         tt_to_t_idx.append(tt_to_t_idx1)#these smallest peceices tokens belong to original token's index, list of list
         t_to_tt_idx.append(t_to_tt_idx1)#original token indices, list of list
-
+        
+        i_tks.append(i_tks1)
         l_n.append(len(nlu_tt1))# how many valid token in this question
         #         hds1_all_tok = tokenize_hds1(tokenizer, hds1)
 
@@ -798,7 +814,7 @@ def get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length):
 
     return all_encoder_layer, pooled_output, tokens, i_nlu, i_hds, \
            l_n, l_hpu, l_hs, \
-           nlu_tt, t_to_tt_idx, tt_to_t_idx
+           nlu_tt, t_to_tt_idx, tt_to_t_idx, l_npu, l_token, i_tks
 
 
 
@@ -810,10 +826,10 @@ def get_wemb_n(i_nlu, l_n, hS, num_hidden_layers, all_encoder_layer, num_out_lay
     bS = len(l_n)
     l_n_max = max(l_n)# the number of tokens in each datum
     wemb_n = torch.zeros([bS, l_n_max, hS * num_out_layers_n]).to(device)
+    
     for b in range(bS):
         # [B, max_len, dim]
         # Fill zero for non-exist part.
-        l_n1 = l_n[b]
         i_nlu1 = i_nlu[b]
         for i_noln in range(num_out_layers_n):
             i_layer = num_hidden_layers - 1 - i_noln
@@ -834,7 +850,6 @@ def get_wemb_h(i_hds, l_hpu, l_hs, hS, num_hidden_layers, all_encoder_layer, num
        [t2-c1-t1, ...,]
     ]
     """
-    bS = len(l_hs)
     l_hpu_max = max(l_hpu)#the max sub tokens number of a single col
     num_of_all_hds = sum(l_hs)# the sum of how many col in the table are used for one question
     wemb_h = torch.zeros([num_of_all_hds, l_hpu_max, hS * num_out_layers_h]).to(device)
@@ -854,12 +869,12 @@ def get_wemb_h(i_hds, l_hpu, l_hs, hS, num_hidden_layers, all_encoder_layer, num
 
 
 
-def get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length, num_out_layers_n=1, num_out_layers_h=1):
+def get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length, num_out_layers_n=1, num_out_layers_h=1, num_out_layers_v=1):
 
     # get contextual output of all tokens from bert
     all_encoder_layer, pooled_output, tokens, i_nlu, i_hds,\
     l_n, l_hpu, l_hs, \
-    nlu_tt, t_to_tt_idx, tt_to_t_idx = get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length)
+    nlu_tt, t_to_tt_idx, tt_to_t_idx, l_npu, l_token, i_tks = get_bert_output(model_bert, tokenizer, nlu_t, hds, max_seq_length)
     # all_encoder_layer: BERT outputs from all layers.
     # pooled_output: output of [CLS] vec.
     # tokens: BERT intput tokens
@@ -873,9 +888,14 @@ def get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length
 
     wemb_h = get_wemb_h(i_hds, l_hpu, l_hs, bert_config.hidden_size, bert_config.num_hidden_layers, all_encoder_layer,
                         num_out_layers_h)
+    
+    wemb_v = get_wemb_h(i_tks, l_npu, l_token, bert_config.hidden_size, bert_config.num_hidden_layers, all_encoder_layer,
+                        num_out_layers_v)
+    
+    #print('wemb_n: ', wemb_n.size(), 'wemb_h: ', wemb_h.size(), 'wemb_v: ', wemb_v.size())
 
     return wemb_n, wemb_h, l_n, l_hpu, l_hs, \
-           nlu_tt, t_to_tt_idx, tt_to_t_idx
+           nlu_tt, t_to_tt_idx, tt_to_t_idx, wemb_v, l_npu, l_token
 
 
 def gen_pnt_n(g_wvi, mL_w, mL_nt):
@@ -1080,28 +1100,36 @@ def pred_wo(wn, s_wo):
 
     return pr_wo
 
+def pred_wvi1(wn, s_wvi1):
+    pr_wvi1 = []
+    for b, s_wvi11 in enumerate(s_wvi1):
+        pr_wvi1.append([e.argmax().item() for e in s_wvi11[:wn[b]]])
+        
+    return pr_wvi1
 
-def pred_wvi_se(wn, s_wv):
+
+def pred_wvi_se(wn, s_wv1, s_wv2):
     """
     s_wv: [B, 4, mL, 2]
     - predict best st-idx & ed-idx
     """
 
-    s_wv_st, s_wv_ed = s_wv.split(1, dim=3)  # [B, 4, mL, 2] -> [B, 4, mL, 1], [B, 4, mL, 1]
-
-    s_wv_st = s_wv_st.squeeze(3) # [B, 4, mL, 1] -> [B, 4, mL]
-    s_wv_ed = s_wv_ed.squeeze(3)
+    s_wv_st = s_wv1  # [B, 4, mL, 2] -> [B, 4, mL, 1], [B, 4, mL, 1]
+    s_wv_len = s_wv2
+    
+    #s_wv_st = s_wv_st.squeeze(3) # [B, 4, mL, 1] -> [B, 4, mL]
+    #s_wv_ed = s_wv_ed.squeeze(3)
 
     pr_wvi_st_idx = s_wv_st.argmax(dim=2) # [B, 4, mL] -> [B, 4, 1]
-    pr_wvi_ed_idx = s_wv_ed.argmax(dim=2)
+    pr_wvi_len_idx = s_wv_len.argmax(dim=2)
 
     pr_wvi = []
     for b, wn1 in enumerate(wn):
         pr_wvi1 = []
         for i_wn in range(wn1):
             pr_wvi_st_idx11 = pr_wvi_st_idx[b][i_wn]
-            pr_wvi_ed_idx11 = pr_wvi_ed_idx[b][i_wn]
-            pr_wvi1.append([pr_wvi_st_idx11.item(), pr_wvi_ed_idx11.item()])
+            pr_wvi_len_idx11 = pr_wvi_len_idx[b][i_wn]
+            pr_wvi1.append([pr_wvi_st_idx11.item(), pr_wvi_len_idx11.item()])
         pr_wvi.append(pr_wvi1)
 
     return pr_wvi
@@ -1179,10 +1207,10 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
     pr_wv_str_wp = [] # word-piece version
     pr_wv_str = []
     for b, pr_wvi1 in enumerate(pr_wvi):
-        pr_wv_str_wp1 = []
+        #pr_wv_str_wp1 = []
         pr_wv_str1 = []
-        wp_to_wh_index1 = wp_to_wh_index[b]
-        nlu_wp_t1 = nlu_wp_t[b]
+        #wp_to_wh_index1 = wp_to_wh_index[b]
+        #nlu_wp_t1 = nlu_wp_t[b]
         nlu_t1 = nlu_t[b]
 
         for i_wn, pr_wvi11 in enumerate(pr_wvi1):
@@ -1190,16 +1218,18 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
 
             # Ad-hoc modification of ed_idx to deal with wp-tokenization effect.
             # e.g.) to convert "butler cc (" ->"butler cc (ks)" (dev set 1st question).
-            pr_wv_str_wp11 = nlu_wp_t1[st_idx:ed_idx+1]
-            pr_wv_str_wp1.append(pr_wv_str_wp11)#最后一个词只有第一个字
+            #pr_wv_str_wp11 = nlu_wp_t1[st_idx:ed_idx+1]
+            #pr_wv_str_wp1.append(pr_wv_str_wp11)#最后一个词只有第一个字
 
-            st_wh_idx = wp_to_wh_index1[st_idx]
-            ed_wh_idx = wp_to_wh_index1[ed_idx]
+            #st_wh_idx = wp_to_wh_index1[st_idx]
+            #ed_wh_idx = wp_to_wh_index1[ed_idx]
+            st_wh_idx = st_idx
+            ed_wh_idx = ed_idx
             pr_wv_str11 = nlu_t1[st_wh_idx:ed_wh_idx+1]
 
             pr_wv_str1.append(pr_wv_str11)
 
-        pr_wv_str_wp.append(pr_wv_str_wp1)
+        #pr_wv_str_wp.append(pr_wv_str_wp1)
         pr_wv_str.append(pr_wv_str1)
 
     return pr_wv_str, pr_wv_str_wp
@@ -1207,7 +1237,7 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
 
 
 
-def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv):
+def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2):
     pr_sn = pred_sn(s_sn)
     pr_sc = pred_sc(pr_sn, s_sc)
     pr_sa = pred_sa(pr_sn, s_sa)
@@ -1219,7 +1249,7 @@ def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     pr_dwn = pred_dwn(pr_wn, pr_hrpc, pr_nrpc)
     pr_wc = pred_wc(pr_dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc)
     pr_wo = pred_wo(pr_wn, s_wo)
-    pr_wvi = pred_wvi_se(pr_wn, s_wv)
+    pr_wvi = pred_wvi_se(pr_wn, s_wv1, s_wv2)
 
     return pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi
 
@@ -1351,6 +1381,12 @@ def get_g_wvi_bert(nlu, nlu_t, wh_to_wp_index, sql_i, sql_t, tokenizer, nlu_wp_t
 
     return g_wvi
 
+
+def get_g_wvi_stidx_length_jian_yi(g_wvi_corenlp):
+    return [[[e[0], e[1] - e[0]] for e in l] for l in g_wvi_corenlp]
+
+def g_wvi_decoder_stidx_length_jian_yi(wvi_jian_yi):
+    return [[[e[0], e[0] + e[1]] for e in l] for l in wvi_jian_yi]
 
 def get_g_wvi_bert_from_g_wvi_corenlp(wh_to_wp_index, g_wvi_corenlp):
     """
@@ -1520,10 +1556,13 @@ def get_cnt_wo(g_wn, g_wc, g_wo, pr_wc, pr_wo, mode):
         else:
             # Sort based on wc sequence.
             if mode == 'test':
+                '''
                 idx = argsort(array(g_wc1))
 
                 g_wo1_s = array(g_wo1)[idx]
                 g_wo1_s = list(g_wo1_s)
+                '''
+                g_wo1_s = g_wo1
             elif mode == 'train':
                 # due to teacher forcing, no need to sort.
                 g_wo1_s = g_wo1
@@ -1556,10 +1595,13 @@ def get_cnt_wo_list(g_wn, g_wc, g_wo, pr_wc, pr_wo, mode):
         else:
             # Sort based wc sequence.
             if mode == 'test':
+                '''
                 idx = argsort(array(g_wc1))
 
                 g_wo1_s = array(g_wo1)[idx]
                 g_wo1_s = list(g_wo1_s)
+                '''
+                g_wo1_s = g_wo1
             elif mode == 'train':
                 # due to tearch forcing, no need to sort.
                 g_wo1_s = g_wo1

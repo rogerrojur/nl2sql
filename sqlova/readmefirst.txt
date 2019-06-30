@@ -1,9 +1,7 @@
-train, test, val µÄ "*_tok.json", "*.tables.json", "*.db" ¶¼·ÅÔÚ "sqlova/wikisql/data/tianchi" ÎÄ¼ş¼ĞÏÂ
-
-ĞŞ¸Ätrain.py 691ĞĞµÄpath_hÎªµ½´ï"sqlova/wikisql"µÄ¾ø¶ÔÂ·¾¶
+train, test, val ä¸­çš„ "*_tok.json", "*.tables.json", "*.db" å…¨éƒ¨åœ¨ "sqlova/wikisql/data/tianchi" æ–‡ä»¶å¤¹ä¸‹
 
 pip install pytorch_pretrained_bert
 
-ÔËĞĞ´úÂëÀı×Ó£º
+è¿è¡Œå‘½ä»¤ï¼š(æŒ‡å®šå‚æ•°--user, ç½—å‡¯0ï¼Œæ™‹è±ª1ï¼Œåˆ˜è¶…2)
 
-python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 222
+python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 222 --user 1

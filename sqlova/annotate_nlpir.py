@@ -5,14 +5,17 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 import os
 import records
 import ujson as json
-from stanza.nlp.corenlp import CoreNLPClient
 from tqdm import tqdm
 import copy
 import re
 
 import pynlpir as pr
-
 pr.open()
+
+import jieba
+# 北大的分词系统
+import pkuseg
+seg = pkuseg.pkuseg()
 
 client = None
 
@@ -459,6 +462,64 @@ def pre_translate(token_list, annotate_dic):
     return copy
 
 
+
+def pre_no_change_process(token_list):
+    results = []
+    for token in token_list:
+        # 针对原数据集里面的数字和汉字混合进行处理，如6月；2012年
+        findit = False
+        if token[0] in '1234567890.-':
+            for i in range(len(token)):
+                if token[i] not in '1234567890.':
+                    results.append(token[:i])
+                    results.append(token[i:])
+                    findit = True
+                    break
+            if not findit:
+                results.append(token)
+            continue
+
+        # 如果出现河南省等，则将名字和后面的等级分开
+        if token[-1] in '省市区县' and len(token) > 1:
+            results.append(token[:-1])
+            results.append(token[-1])
+            continue
+
+        results.append(token)
+
+    # 去除空的
+    copy = []
+    for r in results:
+        if r != '' and r != ' ':
+            copy.append(r)
+
+    return copy
+
+
+def seg_summary(org_str, nlpir_list, pkuseg_list):
+    """jieba_list是搜索引擎方式，可能和原始字符串不对应，我们需要亿org_str为基础，综合后两个列表"""
+    spilt_indices = set()
+    curr_len = 0
+    spilt_indices.add(0)
+    for token in nlpir_list:
+        curr_len += len(token)
+        spilt_indices.add(curr_len)
+
+    curr_len = 0
+    for token in pkuseg_list:
+        curr_len += len(token)
+        spilt_indices.add(curr_len)
+
+    spilt_indices = sorted(list(spilt_indices))
+
+    results = []
+    for i in range(len(spilt_indices)-1):
+        results.append(org_str[spilt_indices[i]:spilt_indices[i+1]])
+
+    return results
+
+
+
 def annotate_example_nlpir(example, table):
     """
     Jan. 2019: Wonseok
@@ -466,11 +527,17 @@ def annotate_example_nlpir(example, table):
     """
     ann = {'table_id': example['table_id']}
 
-    _nlu_ann = pr.segment(example['question'], pos_tagging=False)
+    _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
+    _nlu_ann_pk = seg.cut(example['question'])
+
+    # 综合 北大 分词和 pynlpir 分词的结果，二者取短
+    # _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk)
+    _nlu_ann = _nlu_ann_pr
     ann['question'] = example['question']
 
     # 不加预处理
-    processed_nlu_token_list = _nlu_ann
+    # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
+    processed_nlu_token_list = pre_no_change_process(_nlu_ann)
     # processed_nlu_token_list = pre_translate(_nlu_ann)
 
     ann['question_tok'] = processed_nlu_token_list

@@ -352,9 +352,9 @@ def pre_translate(token_list):
     while ix < len(token_list) - 1:
         ix += 1
         token = token_list[ix]
-        if token in str_to_str_dic:
-            results.append(str_to_str_dic[token])
-            continue
+        # if token in str_to_str_dic:
+        #     results.append(str_to_str_dic[token])
+        #     continue
         if ix < len(token_list) - 1 and (token == '企鹅' and token_list[ix+1] == '公司') or (token == '鹅' and token_list[ix+1] == '厂'):
             results.append('腾讯')
             results.append('公司')
@@ -365,30 +365,35 @@ def pre_translate(token_list):
         if token.endswith('年'):
             if len(token) == 3 and token[0] in dic and token[1] in dic:
                 pre_tmp_str = '20' if int(helper(token[:2])) <= 20 else '19'
-                tmp_str = pre_tmp_str + str(dic[token[0]]) + str(dic[token[1]]) + token[2]
+                tmp_str = pre_tmp_str + str(dic[token[0]]) + str(dic[token[1]])
                 results.append(tmp_str)
+                results.append(token[2])
                 continue
             if len(token) == 1:
                 if ix > 0 and len(token_list[ix-1]) == 2 and str.isdigit(token_list[ix-1]):
                     # 16变成2016
-                    results[-1] = '20' + results[-1] + '年'
+                    results[-1] = '20' + results[-1]
+                    results.append('年')
                     continue
             if len(token) == 2 and token[0] in ['今','去','前']:
                 if token[0] == '今':
-                    results.append('2019年')
+                    results.append('2019')
                 if token[0] == '去':
-                    results.append('2018年')
+                    results.append('2018')
                 if token[0] == '前':
-                    results.append('2017年')
+                    results.append('2017')
+                results.append('年')
                 continue
             # 两千年
             if is_all_number_word(token[:-1]):
-                results.append(getResultForDigit(token[:-1]) + '年')
+                results.append(getResultForDigit(token[:-1]))
+                results.append('年')
                 continue
 
         #  '第二', '第几', '第2'
         if token.startswith('第'):
-            tmp_str = '第'
+            results.append('第')
+            tmp_str = ''
             for i in range(1, len(token)):
                 tmp_str += getResultForDigit(token[1:])
             results.append(tmp_str)
@@ -405,8 +410,12 @@ def pre_translate(token_list):
             continue
 
         # '百亿'; '一百亿'; '5万'; '二十'; '三千万'; '三十八万'; '百万';20万
-        if is_all_number_word(token):
-            results.append(getResultForDigit(token))
+        if len(token) >= 2 and is_all_number_word(token):
+            if token[-1] in ['亿','万']:
+                results.append(getResultForDigit(token[:-1]))
+                results.append('亿' if token[-1] == '亿' else '0000')
+            else:
+                results.append(getResultForDigit(token))
             continue
 
         # 一点六; 零点五; 十二点八
@@ -416,29 +425,38 @@ def pre_translate(token_list):
 
         # 十九点七二块
         if is_decimal_number_word(token[:-1]):
-            results.append(getResultForDecimal(token[:-1]) + token[-1])
+            results.append(getResultForDecimal(token[:-1]))
+            results.append(token[-1])
             continue
 
         if token[0] == '两' and is_all_number_word(token[1:]):
-            results.append(getResultForDigit('二' + token[1:]))
+            if token[-1] in ['亿','万']:
+                results.append(getResultForDigit('二' + token[1:-1]))
+                results.append('亿' if token[-1] == '亿' else '0000')
+            else:
+                results.append(getResultForDigit('二' + token[1:]))
             continue
 
         # '百分之八'
         if len(token) >= 4 and token[:3] == '百分之':
             if is_all_number_word(token[3:]):
-                results.append(getResultForDigit(token[3:])+'%')
+                results.append(getResultForDigit(token[3:]))
+                results.append('%')
                 continue
             if is_decimal_number_word(token[3:]):
-                results.append(getResultForDecimal(token[3:])+'%')
+                results.append(getResultForDecimal(token[3:]))
+                results.append('%')
                 continue
 
         # 一共;百度；万科
         if len(token) > 1 and is_all_number_word(token[:-1]) and token[-1] not in spectial_charlist1:
-            results.append(str(getResultForDigit(token[:-1])) + token[-1])
+            results.append(str(getResultForDigit(token[:-1])))
+            results.append(token[-1])
             continue
 
         if token[-2:] == '月份' and is_all_number_word(token[:-2]):
-            results.append(getResultForDigit(token[:-2]) + '月')
+            results.append(getResultForDigit(token[:-2]))
+            results.append('月')
             continue
 
         # 一点六；
@@ -446,28 +464,50 @@ def pre_translate(token_list):
         # '二十元';'二十块';"5","角";"四","角钱";"十二","块","五","毛"；"十二点五","元";
         if token[0] == '角' or token[0] == '毛':
             if results and is_all_number_word(results[-1]):
-                results[-1] = '0.' + results[-1] + '元'
+                results[-1] = '0.' + getResultForDigit(results[-1])
+                results.append('元')
                 continue
 
         # '五角钱';2角;
         if (len(token) == 2 and token[0] in dic and token[1] == '角') or (len(token) == 3 and token[0] in dic and token[1:] == '角钱'):
-            results.append('0.'+getResultForDigit(token[0]) + '元')
+            results.append('0.'+getResultForDigit(token[0]))
+            results.append('元')
             continue
 
         if (token == '块' or token == '元') and 0 < ix < len(token_list)-1:
             if is_all_number_word(token_list[ix-1]) and is_all_number_word(token_list[ix+1]):
-                results[-1] = str(getResultForDigit(token_list[ix-1])) + '.' + str(getResultForDigit(token_list[ix+1])) + '元'
+                results[-1] = str(getResultForDigit(token_list[ix-1])) + '.' + str(getResultForDigit(token_list[ix+1]))
+                results.append('元')
                 ix += 1
                 continue
 
         if (token == '块' or token == '元') and ix == len(token_list)-1:
             if is_all_number_word(token_list[ix-1]):
-                results[-1] = str(getResultForDigit(token_list[ix-1])) + '元'
+                results[-1] = str(getResultForDigit(token_list[ix-1]))
+                results.append('元')
                 continue
+
+        # 针对原数据集里面的数字和汉字混合进行处理，如6月；2012年
+        if token[0] in '1234567890.':
+            for i in range(len(token)):
+                if token[i] not in '1234567890.':
+                    break
+            if i == len(token):
+                results.append(token)
+                continue
+            results.append(token[:i])
+            results.append(token[i:])
+            continue
 
         results.append(token)
 
-    return results
+    # 去除空的
+    copy = []
+    for r in results:
+        if r != '':
+            copy.append(r)
+
+    return copy
 
 
 def annotate_example_ws(example, table):
@@ -559,8 +599,8 @@ def detokenize(tokens):
 
 if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--din', default='./data/', help='data directory')
-    parser.add_argument('--dout', default='./data/tok', help='output directory')
+    parser.add_argument('--din', default='./wikisql/data/tianchi/', help='data directory')
+    parser.add_argument('--dout', default='./wikisql/data/tianchi/', help='output directory')
     parser.add_argument('--split', default='train,val,test', help='comma=separated list of splits to process')
     args = parser.parse_args()
 
@@ -579,8 +619,8 @@ if __name__ == '__main__':
 
     # for split in ['train', 'val', 'test']:
     for split in args.split.split(','):
-        fsplit = os.path.join(args.din,split, split) + '.json'
-        ftable = os.path.join(args.din,split, split) + '.tables.json'
+        fsplit = os.path.join(args.din, split) + '.json'
+        ftable = os.path.join(args.din, split) + '.tables.json'
         fout = os.path.join(args.dout, split) + '_tok.json'
 
         print('annotating {}'.format(fsplit))

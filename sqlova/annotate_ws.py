@@ -531,6 +531,13 @@ def annotate_example_ws(example, table, annotate_dic):
     Annotate only the information that will be used in our model.
     """
     ann = {'table_id': example['table_id']}
+
+    # 对example['question']进行替换
+    # for key in replace_dic:
+    #     if example['question'].find(key) != -1:
+    #         example['question'].replace(key, replace_dic[key])
+    #         break
+
     _nlu_ann = annotate(example['question'])
     ann['question'] = example['question']
 
@@ -631,6 +638,13 @@ if __name__ == '__main__':
         for line in fin:
             # 字典扩容，合并
             annotate_dic.update(json.loads(line))
+
+    # 替换列表
+    # replace_dic = {}
+    # with open('replace_dic.txt', encoding='utf8') as fin:
+    #     for line in fin:
+    #         # 字典扩容，合并
+    #         replace_dic.update(json.loads(line))
 
 
     # for split in ['train', 'val', 'test']:

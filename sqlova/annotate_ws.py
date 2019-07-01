@@ -329,7 +329,7 @@ def getResultForDecimal(token):
     return res
 
 
-def pre_translate(token_list):
+def pre_translate(token_list, annotate_dic):
     results = []
     dic = zh_digit_dic
     # 由于token_list和where_value均按照这个标准token，可以统一到一个标准
@@ -346,15 +346,18 @@ def pre_translate(token_list):
     '中山大学':'中大','西财':'西南财大','东航':'东方航空','国泰':'国泰航空','湖南卫视':'湖南卫视芒果','国图':'国家图书馆','央视':'中央电视台',
     '三星':'三星电子电脑有限公司','硕博':'硕士博士','本硕博':'本科硕士博士','我国':'中国'}
 
-    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川','能','变','化','起','宁','江']   # 和 一 搭配的字，三星，万科，四川
+    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川','能','变','化','起','宁','江','般','通']   # 和 一 搭配的字，三星，万科，四川
+    spectial_charlist2 = ['个','人']
     # for ix, token in enumerate(token_list):
     ix = -1
     while ix < len(token_list) - 1:
         ix += 1
         token = token_list[ix]
-        # if token in str_to_str_dic:
-        #     results.append(str_to_str_dic[token])
+        # 如果在映射字典中，则对token进行替换
+        # if token in annotate_dic:
+        #     results.append(annotate_dic[token])
         #     continue
+
         if ix < len(token_list) - 1 and (token == '企鹅' and token_list[ix+1] == '公司') or (token == '鹅' and token_list[ix+1] == '厂'):
             results.append('腾讯')
             results.append('公司')
@@ -408,6 +411,12 @@ def pre_translate(token_list):
         if token in ['百', '千', '万', '亿']:
             results.append(token)
             continue
+
+        if len(token) == 1 and token in '一二三四五六七八九十两':
+            if ix < len(token_list) - 1 and token_list[ix+1] in spectial_charlist2:
+                results.append(getResultForDigit(token))
+                continue
+
 
         # '百亿'; '一百亿'; '5万'; '二十'; '三千万'; '三十八万'; '百万';20万
         if len(token) >= 2 and is_all_number_word(token):
@@ -468,6 +477,12 @@ def pre_translate(token_list):
                 results.append('元')
                 continue
 
+        # 添加 男的 处理 男
+        if token[-1] == '的' and len(token) > 1:
+            results.append(token[:-1])
+            results.append(token[-1])
+            continue
+
         # '五角钱';2角;
         if (len(token) == 2 and token[0] in dic and token[1] == '角') or (len(token) == 3 and token[0] in dic and token[1:] == '角钱'):
             results.append('0.'+getResultForDigit(token[0]))
@@ -510,7 +525,7 @@ def pre_translate(token_list):
     return copy
 
 
-def annotate_example_ws(example, table):
+def annotate_example_ws(example, table, annotate_dic):
     """
     Jan. 2019: Wonseok
     Annotate only the information that will be used in our model.
@@ -521,7 +536,7 @@ def annotate_example_ws(example, table):
 
     # 16, 年; 一六年; 这种形式转化为2016年
     # print(_nlu_ann['gloss'])
-    processed_nlu_token_list = pre_translate(_nlu_ann['gloss'])
+    processed_nlu_token_list = pre_translate(_nlu_ann['gloss'], annotate_dic)
 
     ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {
@@ -545,7 +560,7 @@ def annotate_example_ws(example, table):
         # wv_ann11 = _wv_ann1['gloss']
         # wv_ann1.append( wv_ann11 )
         _wv_ann1 = annotate(str(conds11[2]))
-        wv_ann11 = pre_translate(_wv_ann1['gloss'])
+        wv_ann11 = pre_translate(_wv_ann1['gloss'], annotate_dic)
         wv_ann11_str = ''.join(wv_ann11)
         # wv_ann1.append(str(conds11[2]))
         wv_ann1.append(wv_ann11_str)
@@ -611,11 +626,12 @@ if __name__ == '__main__':
         os.makedirs(args.dout)
 
     # 加载缩写词对应的词典,对token进行替换
-    # str_to_str_dic = {}
-    # with open('./auxfiles/vocab.txt', encoding='utf8') as fin:
-    #     for line in fin:
-    #         arr = line.split(':')
-    #         str_to_str_dic[arr[0]] = arr[1].strip()
+    annotate_dic = {}
+    with open('annotate_dic.txt', encoding='utf8') as fin:
+        for line in fin:
+            # 字典扩容，合并
+            annotate_dic.update(json.loads(line))
+
 
     # for split in ['train', 'val', 'test']:
     for split in args.split.split(','):
@@ -639,7 +655,7 @@ if __name__ == '__main__':
                 cnt += 1
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
-                a = annotate_example_ws(d, tables[d['table_id']])
+                a = annotate_example_ws(d, tables[d['table_id']], annotate_dic)
                 # print(a)
                 # if cnt > 10:
                 #     break

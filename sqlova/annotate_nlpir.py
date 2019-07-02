@@ -351,6 +351,92 @@ def pre_with_change_process(token_list):
                 ix += 1
                 continue
 
+        # 处理带有 亿 的数字
+        # 对于 1/亿 这种不进行处理
+        if len(token) > 1 and token[-1] == '亿':
+            val = get_numberical_value(token[:-1])
+            if val != None:
+                results.append(val)
+                results.append('亿')
+                continue
+        # 处理 一百/亿 这种数据
+        if len(token) == 1 and token == '亿' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None:
+                results[-1] = val
+                results.append('亿')
+                continue
+
+        # 处理带有 万 的数字 
+        # 对于 一百万，两千万, 百万 这种 万 不进行处理， 五/千万
+        if len(token) > 1 and token[-1] == '万':
+            val = get_numberical_value(token[:-1])
+            # 三千万；一千万; 前面大于100的都这样处理，前面小于100的，把万进行转化，如把 两万 一万 转化为 2，0000， 1，0000
+            if val != None:
+                # 五/千万;
+                if ix > 0 and get_numberical_value(token_list[ix-1]) != None and token in ['千万','百万','十万']:
+                    results[:-1] = get_numberical_value(token_list[ix-1])
+                    tmp_val = getResultForDigit(token)
+                    results.append(tmp_val[1:-4])   # 去掉首个1
+                    results.append(tmp_val[-4:])
+                    continue
+                if eval(val) >= 100:
+                    results.append(val)
+                    results.append('万')
+                else:   # 对于 一万/两万 这种进行转化10000, 20000
+                    results.append(val)
+                    results.append('0000')
+                continue
+        # 处理 4/万;十/万； 这种数据
+        if len(token) == 1 and token == '万' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None and eval(val) < 100:
+                results[-1] = val
+                results.append('0000')
+                continue
+
+        # 处理带有 千 的数字
+        # 三千；
+        if len(token) > 1 and token[-1] == '千':
+            val = get_numberical_value(token[:-1])
+            if val != None:
+                results.append(val)
+                results.append('000')
+                continue
+        # 三/千;
+        if len(token) == 1 and token == '千' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None:
+                results[-1] = val
+                results.append('000')
+                continue
+
+        # # 处理钱的问题
+        # # 一/元；五十/块；一点六/元
+        # if len(token) == 1 and token in '元块' and ix > 0:
+        #     val = get_numberical_value(token_list[ix-1])
+        #     if val != None:
+        #         results[-1] = val
+        #         results.append('元')
+        #         continue
+
+        # # 十二块/五/毛；一块/六/毛；
+        # if len(token) > 1 and token[-1] in '元块':
+        #     val = get_numberical_value(token[:-1])
+        #     if ix < len(token_list) - 1:
+        #         tmp_val = get_numberical_value(token_list[ix+1])
+        #     if val != None and tmp_val != None:
+        #         results.append(val + '.' + tmp_val)
+        #         results.append('元')
+        #         ix += 1
+        #         if ix < len(token_list) - 1 and token_list[ix+1] in '角毛':
+        #             ix += 1
+        #         continue
+        #     if val != None:
+        #         results.append(val)
+        #         results.append('元')
+        #         continue
+
         # 如果不符合上述规则，则直接添加到results列表
         results.append(token)
 

@@ -387,7 +387,7 @@ def pre_with_change_process(token_list):
                     results.append(val)
                     results.append('0000')
                 continue
-        # 处理 4/万;十/万； 这种数据
+        # 处理 4/万;十/万； 这种数据; 
         if len(token) == 1 and token == '万' and ix > 0:
             val = get_numberical_value(token_list[ix-1])
             if val != None and eval(val) < 100:
@@ -411,31 +411,48 @@ def pre_with_change_process(token_list):
                 results.append('000')
                 continue
 
-        # # 处理钱的问题
-        # # 一/元；五十/块；一点六/元
-        # if len(token) == 1 and token in '元块' and ix > 0:
-        #     val = get_numberical_value(token_list[ix-1])
-        #     if val != None:
-        #         results[-1] = val
-        #         results.append('元')
-        #         continue
+        ############ 钱的问题 钱的问题 钱的问题 #############
+        # 一/元；五十/块；一点六/元; 20/万/元,处理到万的时候变成0000，需要做判断
+        # 十二/块/五/毛；十/一/块/六
+        if len(token) == 1 and token in '元块' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None:
+                if eval(val) == 0 and len(token_list[ix-1]) > 0:
+                    pass
+                elif eval(val) == 0 and token_list[ix-1] == '亿':
+                    pass
+                else:
+                    results[-1] = val
+                    results.append(token)
+                    continue
 
-        # # 十二块/五/毛；一块/六/毛；
-        # if len(token) > 1 and token[-1] in '元块':
-        #     val = get_numberical_value(token[:-1])
-        #     if ix < len(token_list) - 1:
-        #         tmp_val = get_numberical_value(token_list[ix+1])
-        #     if val != None and tmp_val != None:
-        #         results.append(val + '.' + tmp_val)
-        #         results.append('元')
-        #         ix += 1
-        #         if ix < len(token_list) - 1 and token_list[ix+1] in '角毛':
-        #             ix += 1
-        #         continue
-        #     if val != None:
-        #         results.append(val)
-        #         results.append('元')
-        #         continue
+
+        # 处理钱的问题
+        # 十二/块/五/毛；一块/六/毛；
+        if len(token) > 1 and token[-1] in '元块':
+            val = get_numberical_value(token[:-1])
+            tmp_val = None
+            if ix < len(token_list) - 1:
+                tmp_val = get_numberical_value(token_list[ix+1])
+            if val != None and tmp_val != None:
+                results.append(val + '.' + tmp_val)
+                results.append(token[-1])
+                ix += 1
+                if ix < len(token_list) - 1 and token_list[ix+1] in '角毛':
+                    ix += 1
+                continue
+            if val != None:
+                results.append(val)
+                results.append(token[-1])
+                continue
+
+        # 五/角/钱；五/毛/钱；
+        if len(token) == 1 and token in '角毛' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None:
+                results[-1] = '0.' + val
+                results.append('元')
+                continue
 
         # 如果不符合上述规则，则直接添加到results列表
         results.append(token)
@@ -542,6 +559,9 @@ def annotate_example_nlpir(example, table):
     # 不加预处理
     # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
+
+    # 用于测试
+    ann['orig_tok'] = processed_nlu_token_list
 
     # 改变question进行token后的内容，以提升完全匹配的准确率
     processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)

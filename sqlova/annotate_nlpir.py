@@ -536,6 +536,36 @@ def seg_summary(org_str, nlpir_list, pkuseg_list, jieba_list=None):
     return results
 
 
+def post_with_change_process(token_list):
+    ix = -1
+    results = []
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+
+        # 将中文数字token转化为数字
+        if token[0] in '0123456789.-零一二三四五六七八九十百千万亿点两负千万百亿':
+            val = get_numberical_value(token)
+            try:
+                if val != None and eval(val) > 10:
+                    results.append(val)
+                    continue
+            except:
+                pass
+
+        results.append(token)
+
+    # 去除空的
+    copy = []
+    for r in results:
+        r = r.strip()
+        if r != '' and r != ' ':
+            copy.append(r)
+
+    return copy
+
+
+
 
 def annotate_example_nlpir(example, table):
     """
@@ -543,6 +573,11 @@ def annotate_example_nlpir(example, table):
     Annotate only the information that will be used in our model.
     """
     ann = {'table_id': example['table_id']}
+
+    # 语气词
+    # special_words = ['吧','罢','呗','啵','啦','来','了','嘞','哩','咧','咯','啰','喽','吗','嘛','么','哪','呢','呐']
+    # for word in special_words:
+    #     example['question'] = example['question'].replace(word, '')
 
     example['question'] = example['question'].strip()   # 去除首尾空格
 
@@ -561,10 +596,13 @@ def annotate_example_nlpir(example, table):
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
 
     # 用于测试
-    ann['orig_tok'] = processed_nlu_token_list
+    # ann['orig_tok'] = processed_nlu_token_list
 
     # 改变question进行token后的内容，以提升完全匹配的准确率
     processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
+
+    # 对上一步进行操作的列表进行再操作，因为可能会出现冲突问题，如钱的问题，不是按照先后顺序处理的，如十二/块/五
+    processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
 
     ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {

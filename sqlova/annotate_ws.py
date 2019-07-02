@@ -329,7 +329,7 @@ def getResultForDecimal(token):
     return res
 
 
-def pre_translate(token_list, annotate_dic):
+def pre_translate(token_list):
     results = []
     dic = zh_digit_dic
     # 由于token_list和where_value均按照这个标准token，可以统一到一个标准
@@ -503,7 +503,7 @@ def pre_translate(token_list, annotate_dic):
                 continue
 
         # 针对原数据集里面的数字和汉字混合进行处理，如6月；2012年
-        if token[0] in '1234567890.':
+        if token[0] in '1234567890.-':
             for i in range(len(token)):
                 if token[i] not in '1234567890.':
                     break
@@ -519,13 +519,14 @@ def pre_translate(token_list, annotate_dic):
     # 去除空的
     copy = []
     for r in results:
-        if r != '':
+        r = r.strip()
+        if r != None and r != '' and r != ' ':
             copy.append(r)
 
     return copy
 
 
-def annotate_example_ws(example, table, annotate_dic):
+def annotate_example_ws(example, table):
     """
     Jan. 2019: Wonseok
     Annotate only the information that will be used in our model.
@@ -543,7 +544,7 @@ def annotate_example_ws(example, table, annotate_dic):
 
     # 16, 年; 一六年; 这种形式转化为2016年
     # print(_nlu_ann['gloss'])
-    processed_nlu_token_list = pre_translate(_nlu_ann['gloss'], annotate_dic)
+    processed_nlu_token_list = pre_translate(_nlu_ann['gloss'])
 
     ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {
@@ -567,7 +568,7 @@ def annotate_example_ws(example, table, annotate_dic):
         # wv_ann11 = _wv_ann1['gloss']
         # wv_ann1.append( wv_ann11 )
         _wv_ann1 = annotate(str(conds11[2]))
-        wv_ann11 = pre_translate(_wv_ann1['gloss'], annotate_dic)
+        wv_ann11 = pre_translate(_wv_ann1['gloss'])
         wv_ann11_str = ''.join(wv_ann11)
         # wv_ann1.append(str(conds11[2]))
         wv_ann1.append(wv_ann11_str)
@@ -633,11 +634,11 @@ if __name__ == '__main__':
         os.makedirs(args.dout)
 
     # 加载缩写词对应的词典,对token进行替换
-    annotate_dic = {}
-    with open('annotate_dic.txt', encoding='utf8') as fin:
-        for line in fin:
-            # 字典扩容，合并
-            annotate_dic.update(json.loads(line))
+    # annotate_dic = {}
+    # with open('annotate_dic.txt', encoding='utf8') as fin:
+    #     for line in fin:
+    #         # 字典扩容，合并
+    #         annotate_dic.update(json.loads(line))
 
     # 替换列表
     # replace_dic = {}
@@ -669,7 +670,7 @@ if __name__ == '__main__':
                 cnt += 1
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
-                a = annotate_example_ws(d, tables[d['table_id']], annotate_dic)
+                a = annotate_example_ws(d, tables[d['table_id']])
                 # print(a)
                 # if cnt > 10:
                 #     break

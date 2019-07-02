@@ -490,13 +490,14 @@ def pre_no_change_process(token_list):
     # 去除空的
     copy = []
     for r in results:
+        r = r.strip()
         if r != '' and r != ' ':
             copy.append(r)
 
     return copy
 
 
-def seg_summary(org_str, nlpir_list, pkuseg_list):
+def seg_summary(org_str, nlpir_list, pkuseg_list, jieba_list=None):
     """jieba_list是搜索引擎方式，可能和原始字符串不对应，我们需要亿org_str为基础，综合后两个列表"""
     spilt_indices = set()
     curr_len = 0
@@ -509,6 +510,13 @@ def seg_summary(org_str, nlpir_list, pkuseg_list):
     for token in pkuseg_list:
         curr_len += len(token)
         spilt_indices.add(curr_len)
+
+    curr_len = 0
+    if jieba_list != None:
+        for token in jieba_list:
+            ix = org_str.find(token) + len(token)
+            if ix != -1:
+                spilt_indices.add(ix)
 
     spilt_indices = sorted(list(spilt_indices))
 
@@ -527,12 +535,15 @@ def annotate_example_nlpir(example, table):
     """
     ann = {'table_id': example['table_id']}
 
+    example['question'] = example['question'].strip()   # 去除首尾空格
+
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
     _nlu_ann_pk = seg.cut(example['question'])
+    _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
 
     # 综合 北大 分词和 pynlpir 分词的结果，二者取短
-    # _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk)
-    _nlu_ann = _nlu_ann_pr
+    _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk, _nlu_ann_jb)
+    # _nlu_ann = _nlu_ann_pr
     ann['question'] = example['question']
 
     # 不加预处理

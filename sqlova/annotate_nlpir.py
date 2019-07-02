@@ -485,6 +485,11 @@ def pre_no_change_process(token_list):
             results.append(token[-1])
             continue
 
+        if token == '部门':
+            results.append('部')
+            results.append('门')
+            continue
+
         results.append(token)
 
     # 去除空的
@@ -539,7 +544,8 @@ def annotate_example_nlpir(example, table):
 
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
     _nlu_ann_pk = seg.cut(example['question'])
-    _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
+    # _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
+    _nlu_ann_jb = None
 
     # 综合 北大 分词和 pynlpir 分词的结果，二者取短
     _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk, _nlu_ann_jb)

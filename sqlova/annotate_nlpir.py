@@ -462,6 +462,51 @@ def pre_translate(token_list, annotate_dic):
     return copy
 
 
+def pre_with_change_process(token_list):
+    results = []
+    ix = -1
+    dic = zh_digit_dic
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+
+        ############ 时间处理 时间处理 时间处理 #############
+        if len(token) == 1 and token == '年' and ix > 0:
+            last_token = token_list[ix-1]
+            # 16/年；
+            if ix > 0 and len(last_token) == 2 and str.isdigit(last_token):
+                results[-1] = '20' + results[-1]    # 16变成2016
+                results.append('年')
+                continue
+            # 一六/年；
+            if ix > 0 and len(last_token) == 2 and last_token[0] in dic and last_token[1] in dic:
+                s_value = dic[last_token[0]] + dic[last_token[1]]
+                pre_tmp_str = '20' if int(s_value) <= 20 else '19'
+                tmp_str = pre_tmp_str + s_value
+                results[-1] = tmp_str
+                results.append('年')
+                continue
+        # 一六年；一二年
+        if len(token) == 3 and token[-1] == '年' and token[0] in dic and token[1] in dic:
+            s_value = dic[token[0]] + dic[token[1]]
+            pre_tmp_str = '20' if int(s_value) <= 20 else '19'
+            tmp_str = pre_tmp_str + s_value
+            results.append(tmp_str)
+            results.append('年')
+            continue
+
+        # 如果不符合上述规则，则直接添加到results列表
+        results.append(token)
+
+    # 去除空的token
+    copy = []
+    for r in results:
+        r = r.strip()
+        if r != '' and r != ' ':
+            copy.append(r)
+
+    return copy
+
 
 def pre_no_change_process(token_list):
     results = []
@@ -555,7 +600,9 @@ def annotate_example_nlpir(example, table):
     # 不加预处理
     # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
-    # processed_nlu_token_list = pre_translate(_nlu_ann)
+
+    # 改变question进行token后的内容，以提升完全匹配的准确率
+    processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
 
     ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {
@@ -660,7 +707,7 @@ if __name__ == '__main__':
     for split in args.split.split(','):
         fsplit = os.path.join(args.din, split) + '.json'
         ftable = os.path.join(args.din, split) + '.tables.json'
-        fout = os.path.join(args.dout, split) + '_tok.json'
+        fout = os.path.join(args.dout, split) + '_tok_v.json'
 
         print('annotating {}'.format(fsplit))
         with open(fsplit, encoding='utf8') as fs, open(ftable, encoding='utf8') as ft, open(fout, 'wt', encoding='utf8') as fo:

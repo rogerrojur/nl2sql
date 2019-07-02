@@ -180,6 +180,7 @@ dic1 ={u'零':0, u'一':1, u'二':2, u'三':3, u'四':4, u'五':5, u'六':6, u'�
        u'0':0, u'1':1, u'2':2, u'3':3, u'4':4, u'5':5, u'6':6, u'7':7, u'8':8, u'9':9,
                 u'壹':1, u'贰':2, u'叁':3, u'肆':4, u'伍':5, u'陆':6, u'柒':7, u'捌':8, u'玖':9, u'拾':10, u'佰':100, u'仟':1000, u'萬':10000,
        u'亿':100000000}
+
 def getResultForDigit(a):
     # '八一'
     if len(a) == 2 and a[0] in '三四五六七八九' and a[1] in '零一二三四五六七八九':
@@ -266,200 +267,44 @@ def getResultForDecimal(token):
     return res
 
 
-def pre_translate(token_list, annotate_dic):
-    results = []
-    dic = zh_digit_dic
-    # 由于token_list和where_value均按照这个标准token，可以统一到一个标准
-    str_to_str_dic = {'北上':'北京上海','北上广':'北京上海广州','苏杭':'苏州杭州','买入':'增持', '两':'2','闽':'福建',
-    '国航':'中国国航中国国际航空有限公司','星期':'周','津厦':'天津厦门','达标':'合格','师大':'师范大学','广东话':'粤语',
-    '及格':'合格','工大':'工业大学','开卷':'闭卷','符合':'合格','小汽车':'小型轿车','教师':'老师','SAMSUNG':'三星','首都':'北京市',
-    '苏泊尔':'SUPOR','豫':'河南','研究生':'硕士研究生','财经':'经济','BTV':'北京电视台','Duke':'杜克','University':'大学',
-    'Press':'出版社','同意':'通过','AAAAA':'5A','AAAA':'4A','AAA':'3A','经贸':'经济与贸易','CITVC':'中国国际电视总公司',
-    '央视':'中央电视台','周一至周五':'工作日','HongKongUniversityofScienceandTechnology':'HKUST','星期天':'周日','星期一':'周一',
-    '星期二':'周二','星期三':'周三','星期四':'周四','星期五':'周五','星期六':'周六','建行':'建设银行','招行':'招商银行','工行':'工商银行',
-    '符合规定':'合格','广警院':'广东警官学院','国体':'国家体育场','CNFIA':'中国食品工业协会','马钢':'马鞍山钢铁股份有限公司','武大':'武汉大学',
-    '华科':'华中科技大学','医师':'医生','华师':'华中师范大学','首经贸':'首都经济贸易','社科':'社会科学','北大':'北京大学','浙大':'浙江大学',
-    '上交':'上海交通大学','人大':'中国人民大学','南大':'南京大学','辽大':'辽宁大学','广大':'广州大学','厦大':'厦门大学','北师大':'北京师范大学',
-    '中山大学':'中大','西财':'西南财大','东航':'东方航空','国泰':'国泰航空','湖南卫视':'湖南卫视芒果','国图':'国家图书馆','央视':'中央电视台',
-    '三星':'三星电子电脑有限公司','硕博':'硕士博士','本硕博':'本科硕士博士','我国':'中国'}
+def get_numberical_value(text):
+    if len(text) == 0:
+        return None
 
-    spectial_charlist1 = ['共','下','科','达','线','洲','星','度','川','能','变','化','起','宁','江','般','通']   # 和 一 搭配的字，三星，万科，四川
-    spectial_charlist2 = ['个','人']
-    # for ix, token in enumerate(token_list):
-    ix = -1
-    while ix < len(token_list) - 1:
-        ix += 1
-        token = token_list[ix]
-        # 如果在映射字典中，则对token进行替换
-        # if token in annotate_dic:
-        #     results.append(annotate_dic[token])
-        #     continue
+    result = None
+    is_numberical = True
+    for c in text:
+        if c not in '0123456789.-':
+            is_numberical = False
+            break
+    if is_numberical:
+        return text
 
-        if ix < len(token_list) - 1 and (token == '企鹅' and token_list[ix+1] == '公司') or (token == '鹅' and token_list[ix+1] == '厂'):
-            results.append('腾讯')
-            results.append('公司')
-            ix += 1
-            continue
+    is_str = True
+    for c in text:
+        # 负十
+        if c not in '零一二三四五六七八九十百千万亿点两负':
+            is_str = False
 
-        # "16","年"; "一六年"; "今年"
-        if token.endswith('年'):
-            if len(token) == 3 and token[0] in dic and token[1] in dic:
-                pre_tmp_str = '20' if int(helper(token[:2])) <= 20 else '19'
-                tmp_str = pre_tmp_str + str(dic[token[0]]) + str(dic[token[1]])
-                results.append(tmp_str)
-                results.append(token[2])
-                continue
-            if len(token) == 1:
-                if ix > 0 and len(token_list[ix-1]) == 2 and str.isdigit(token_list[ix-1]):
-                    # 16变成2016
-                    results[-1] = '20' + results[-1]
-                    results.append('年')
-                    continue
-            if len(token) == 2 and token[0] in ['今','去','前']:
-                if token[0] == '今':
-                    results.append('2019')
-                if token[0] == '去':
-                    results.append('2018')
-                if token[0] == '前':
-                    results.append('2017')
-                results.append('年')
-                continue
-            # 两千年
-            if is_all_number_word(token[:-1]):
-                results.append(getResultForDigit(token[:-1]))
-                results.append('年')
-                continue
+    # 包含 点
+    if is_str and text.find('点') != -1:
+        result = getResultForDecimal(text) if text[0] != '负' else '-'+getResultForDecimal(text[1:])
+        for c in result:
+            if c not in '0123456789.-':
+                result = None
+                break
+        return result
 
-        #  '第二', '第几', '第2'
-        if token.startswith('第'):
-            results.append('第')
-            tmp_str = ''
-            for i in range(1, len(token)):
-                tmp_str += getResultForDigit(token[1:])
-            results.append(tmp_str)
-            continue
-
-        # '一' '共';
-        if token == '一' and ix < len(token_list) - 1 and token_list[ix+1] in spectial_charlist1:
-            results.append(token)
-            continue
-
-        # 万 科
-        if token in ['百', '千', '万', '亿']:
-            results.append(token)
-            continue
-
-        if len(token) == 1 and token in '一二三四五六七八九十两':
-            if ix < len(token_list) - 1 and token_list[ix+1] in spectial_charlist2:
-                results.append(getResultForDigit(token))
-                continue
-
-
-        # '百亿'; '一百亿'; '5万'; '二十'; '三千万'; '三十八万'; '百万';20万
-        if len(token) >= 2 and is_all_number_word(token):
-            if token[-1] in ['亿','万']:
-                results.append(getResultForDigit(token[:-1]))
-                results.append('亿' if token[-1] == '亿' else '0000')
-            else:
-                results.append(getResultForDigit(token))
-            continue
-
-        # 一点六; 零点五; 十二点八
-        if is_decimal_number_word(token):
-            results.append(getResultForDecimal(token))
-            continue
-
-        # 十九点七二块
-        if is_decimal_number_word(token[:-1]):
-            results.append(getResultForDecimal(token[:-1]))
-            results.append(token[-1])
-            continue
-
-        if token[0] == '两' and is_all_number_word(token[1:]):
-            if token[-1] in ['亿','万']:
-                results.append(getResultForDigit('二' + token[1:-1]))
-                results.append('亿' if token[-1] == '亿' else '0000')
-            else:
-                results.append(getResultForDigit('二' + token[1:]))
-            continue
-
-        # '百分之八'
-        if len(token) >= 4 and token[:3] == '百分之':
-            if is_all_number_word(token[3:]):
-                results.append(getResultForDigit(token[3:]))
-                results.append('%')
-                continue
-            if is_decimal_number_word(token[3:]):
-                results.append(getResultForDecimal(token[3:]))
-                results.append('%')
-                continue
-
-        # 一共;百度；万科
-        if len(token) > 1 and is_all_number_word(token[:-1]) and token[-1] not in spectial_charlist1:
-            results.append(str(getResultForDigit(token[:-1])))
-            results.append(token[-1])
-            continue
-
-        if token[-2:] == '月份' and is_all_number_word(token[:-2]):
-            results.append(getResultForDigit(token[:-2]))
-            results.append('月')
-            continue
-
-        # 一点六；
-
-        # '二十元';'二十块';"5","角";"四","角钱";"十二","块","五","毛"；"十二点五","元";
-        if token[0] == '角' or token[0] == '毛':
-            if results and is_all_number_word(results[-1]):
-                results[-1] = '0.' + getResultForDigit(results[-1])
-                results.append('元')
-                continue
-
-        # 添加 男的 处理 男
-        if token[-1] == '的' and len(token) > 1:
-            results.append(token[:-1])
-            results.append(token[-1])
-            continue
-
-        # '五角钱';2角;
-        if (len(token) == 2 and token[0] in dic and token[1] == '角') or (len(token) == 3 and token[0] in dic and token[1:] == '角钱'):
-            results.append('0.'+getResultForDigit(token[0]))
-            results.append('元')
-            continue
-
-        if (token == '块' or token == '元') and 0 < ix < len(token_list)-1:
-            if is_all_number_word(token_list[ix-1]) and is_all_number_word(token_list[ix+1]):
-                results[-1] = str(getResultForDigit(token_list[ix-1])) + '.' + str(getResultForDigit(token_list[ix+1]))
-                results.append('元')
-                ix += 1
-                continue
-
-        if (token == '块' or token == '元') and ix == len(token_list)-1:
-            if is_all_number_word(token_list[ix-1]):
-                results[-1] = str(getResultForDigit(token_list[ix-1]))
-                results.append('元')
-                continue
-
-        # 针对原数据集里面的数字和汉字混合进行处理，如6月；2012年
-        if token[0] in '1234567890.':
-            for i in range(len(token)):
-                if token[i] not in '1234567890.':
-                    break
-            if i == len(token):
-                results.append(token)
-                continue
-            results.append(token[:i])
-            results.append(token[i:])
-            continue
-
-        results.append(token)
-
-    # 去除空的
-    copy = []
-    for r in results:
-        if r != '':
-            copy.append(r)
-
-    return copy
+    # 不包含 点 
+    if is_str and text.find('点') == -1:
+        result = getResultForDigit(text) if text[0] != '负' else '-'+getResultForDigit(text[1:])
+        for c in result:
+            if c not in '0123456789-':
+                result = None
+                break
+        return result
+    
+    return None
 
 
 def pre_with_change_process(token_list):
@@ -494,6 +339,17 @@ def pre_with_change_process(token_list):
             results.append(tmp_str)
             results.append('年')
             continue
+
+        ############ 数字处理 数字处理 数字处理 #############
+        # 百分之/39.56；百分之/五; 百分之/十二; 百分之/负十
+        if len(token) == 3 and token == '百分之' and ix+1 < len(token_list):
+            val = get_numberical_value(token_list[ix+1])
+            # 如果value是一个有效的数字
+            if val != None:
+                results.append(val)
+                results.append('%')
+                ix += 1
+                continue
 
         # 如果不符合上述规则，则直接添加到results列表
         results.append(token)

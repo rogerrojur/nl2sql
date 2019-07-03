@@ -315,6 +315,10 @@ def pre_with_change_process(token_list):
         ix += 1
         token = token_list[ix]
 
+        # 去除空格
+        if token == ' ':
+            continue
+
         ############ 时间处理 时间处理 时间处理 #############
         if len(token) == 1 and token == '年' and ix > 0:
             last_token = token_list[ix-1]
@@ -454,6 +458,15 @@ def pre_with_change_process(token_list):
                 results.append('元')
                 continue
 
+
+        ## 其他
+        if len(token) == 1 and token in '个倍人' and ix > 0:
+            val = get_numberical_value(token_list[ix-1])
+            if val != None:
+                results[-1] = val
+                results.append('个')
+                continue
+
         # 如果不符合上述规则，则直接添加到results列表
         results.append(token)
 
@@ -492,6 +505,11 @@ def pre_no_change_process(token_list):
         if token == '部门':
             results.append('部')
             results.append('门')
+            continue
+
+        if token[-1] in '个倍' and len(token) > 1:
+            results.append(token[:-1])
+            results.append('个')
             continue
 
         results.append(token)
@@ -547,9 +565,12 @@ def post_with_change_process(token_list):
         if token[0] in '0123456789.-零一二三四五六七八九十百千万亿点两负千万百亿':
             val = get_numberical_value(token)
             try:
-                if val != None and eval(val) > 10:
-                    results.append(val)
-                    continue
+                if val != None:
+                    tmp_val = eval(val)
+                    if tmp_val > 10 and tmp_val != 100 and tmp_val != 1000 and tmp_val != 10000:
+                        # 对于 百 千 等常见字不处理
+                        results.append(val)
+                        continue
             except:
                 pass
 

@@ -47,9 +47,11 @@ def check_wv_tok_in_nlu_tok(wv_tok1, nlu_t1):
     st_idx of where-value string token in nlu under CoreNLP tokenization scheme.
     """
     g_wvi1_corenlp = []
-    nlu_t1_low = [tok.lower() for tok in nlu_t1]
+    # nlu_t1_low = [tok.lower() for tok in nlu_t1]
+    nlu_t1_low = [tok for tok in nlu_t1]
     for i_wn, wv_tok11 in enumerate(wv_tok1):
-        wv_tok11_low = [tok.lower() for tok in wv_tok11]
+        # wv_tok11_low = [tok.lower() for tok in wv_tok11]
+        wv_tok11_low = [tok for tok in wv_tok11]
         results = find_sub_list(wv_tok11_low, nlu_t1_low)
         st_idx, ed_idx = results[0]
 
@@ -156,9 +158,11 @@ def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
     原因：'铁龙物流'在question中的token可能是 铁龙 / 物流， 而单独annote的时候可能是 铁 / 龙 / 物流
     """
     g_wvi1_corenlp = []
-    nlu_t1_low = [tok.lower() for tok in nlu_t1]
+    # nlu_t1_low = [tok.lower() for tok in nlu_t1]
+    nlu_t1_low = [tok for tok in nlu_t1]
     for i_wn, wv_str in enumerate(wv_str_list):
-        wv_low = wv_str.lower()
+        # wv_low = wv_str.lower()
+        wv_low = wv_str
         # stage: 找到子串的阶段，方便调试，字符串表示
         results, stage = find_str_in_list(wv_low, nlu_t1_low)
         st_idx, ed_idx = results[0] # 选择第1个元素，忽略后面的

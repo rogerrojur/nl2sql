@@ -91,12 +91,12 @@ def load_w2i_wemb(path_wikisql, bert=False):
         wemb = load(os.path.join(path_wikisql, 'wemb.npy'), )
     return w2i, wemb
 
-def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False, num_workers=4):
+def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev=False):
     train_loader = torch.utils.data.DataLoader(
         batch_size=bS,
         dataset=data_train,
         shuffle=shuffle_train,
-        num_workers=num_workers,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -104,7 +104,7 @@ def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev
         batch_size=bS,
         dataset=data_dev,
         shuffle=shuffle_dev,
-        num_workers=num_workers,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -116,8 +116,8 @@ def get_fields_1(t1, tables, no_hs_t=False, no_sql_t=False):
     nlu1 = t1['question']
     nlu_t1 = t1['question_tok']
     tid1 = t1['table_id']
-    sql_i1 = t1['sql']
-    sql_q1 = t1['query']
+    sql_i1 = t1['sql']# generate_result need to convert it to []
+    sql_q1 = t1['query']# generate_result need to convert it to []
     #sql and query is the same, we may need to delete one
     if no_sql_t:
         sql_t1 = None
@@ -1262,8 +1262,8 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
     Almost copied of SQLNet.
     The main purpose is pad blank line while combining tokens.
     """
-    nlq = NLq.lower()
-    where_str_tokens = [tok.lower() for tok in where_str_tokens]
+    nlq = NLq
+    where_str_tokens = [tok for tok in where_str_tokens]
     alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789$'
     special = {'-LRB-': '(',
                '-RRB-': ')',
@@ -1293,7 +1293,7 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
         # Check blank character.
         elif len(ret) > 0 and ret + ' ' + w_token in nlq:
             # Pad ' ' if ret + ' ' is part of nlq.
-            ret = ret + ' '
+            ret = ret
 
         elif len(ret) > 0 and ret + w_token in nlq:
             pass  # already in good form. Later, ret + w_token will performed.
@@ -1301,7 +1301,7 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
         # Below for unnatural question I guess. Is it likely to appear?
         elif w_token == '"':
             if double_quote_appear:
-                ret = ret + ' '  # pad blank line between next token when " because in this case, it is of closing apperas
+                ret = ret  # pad blank line between next token when " because in this case, it is of closing apperas
                 # for the case of opening, no blank line.
 
         elif w_token[0] not in alphabet:
@@ -1309,7 +1309,7 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
 
         # when previous character is the special case.
         elif (ret[-1] not in ['(', '/', '\u2013', '#', '$', '&']) and (ret[-1] != '"' or not double_quote_appear):
-            ret = ret + ' '
+            ret = ret
         ret = ret + w_token
 
     return ret.strip()
@@ -1724,8 +1724,8 @@ def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
         else:
             flag = True
             for i_wn, idx11 in enumerate(idx1):
-                g_wvi_str11 = str(g_sql_i[b]["conds"][idx11][2]).lower()
-                pr_wvi_str11 = str(pr_sql_i[b]["conds"][i_wn][2]).lower()
+                g_wvi_str11 = str(g_sql_i[b]["conds"][idx11][2])
+                pr_wvi_str11 = str(pr_sql_i[b]["conds"][i_wn][2])
                 # print(g_wvi_str11)
                 # print(pr_wvi_str11)
                 # print(g_wvi_str11==pr_wvi_str11)

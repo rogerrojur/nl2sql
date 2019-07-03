@@ -1262,8 +1262,8 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
     Almost copied of SQLNet.
     The main purpose is pad blank line while combining tokens.
     """
-    nlq = NLq.lower()
-    where_str_tokens = [tok.lower() for tok in where_str_tokens]
+    nlq = NLq
+    where_str_tokens = [tok for tok in where_str_tokens]
     alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789$'
     special = {'-LRB-': '(',
                '-RRB-': ')',
@@ -1724,8 +1724,8 @@ def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
         else:
             flag = True
             for i_wn, idx11 in enumerate(idx1):
-                g_wvi_str11 = str(g_sql_i[b]["conds"][idx11][2]).lower()
-                pr_wvi_str11 = str(pr_sql_i[b]["conds"][i_wn][2]).lower()
+                g_wvi_str11 = str(g_sql_i[b]["conds"][idx11][2])
+                pr_wvi_str11 = str(pr_sql_i[b]["conds"][i_wn][2])
                 # print(g_wvi_str11)
                 # print(pr_wvi_str11)
                 # print(g_wvi_str11==pr_wvi_str11)

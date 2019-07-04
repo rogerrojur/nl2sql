@@ -1107,28 +1107,35 @@ def pred_wvi1(wn, s_wvi1):
         
     return pr_wvi1
 
-
-def pred_wvi_se(wn, s_wv1, s_wv2):
+def pred_wvi_se(wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     """
     s_wv: [B, 4, mL, 2]
     - predict best st-idx & ed-idx
     """
-
-    s_wv_st = s_wv1  # [B, 4, mL, 2] -> [B, 4, mL, 1], [B, 4, mL, 1]
-    s_wv_len = s_wv2
-    
+    p1 = F.softmax(s_wv1, dim=2)
+    p3 = F.softmax(s_wv3, dim=2)
+    maxwv1, _ = p1.max(dim=2)
+    meanwv1 = p1.mean(dim=2)
+    maxwv3, _ = p3.max(dim=2)
+    meanwv3 = p3.mean(dim=2)
     #s_wv_st = s_wv_st.squeeze(3) # [B, 4, mL, 1] -> [B, 4, mL]
     #s_wv_ed = s_wv_ed.squeeze(3)
-
-    pr_wvi_st_idx = s_wv_st.argmax(dim=2) # [B, 4, mL] -> [B, 4, 1]
-    pr_wvi_len_idx = s_wv_len.argmax(dim=2)
-
+    pr_wvi_st_idx_s = s_wv1.argmax(dim=2) # [B, 4, mL] -> [B, 4]
+    pr_wvi_len_idx_s = s_wv2.argmax(dim=2)
+    pr_wvi_len_idx_e = mvl - 1 - s_wv4.argmax(dim=2)
+    pr_wvi_st_idx_e = s_wv3.argmax(dim=2) - pr_wvi_len_idx_e
     pr_wvi = []
     for b, wn1 in enumerate(wn):
         pr_wvi1 = []
         for i_wn in range(wn1):
-            pr_wvi_st_idx11 = pr_wvi_st_idx[b][i_wn]
-            pr_wvi_len_idx11 = pr_wvi_len_idx[b][i_wn]
+            if maxwv1[b][i_wn].item() - meanwv1[b][i_wn].item() >= maxwv3[b][i_wn].item() - meanwv3[b][i_wn].item():
+                #print('select wv12')
+                pr_wvi_st_idx11 = pr_wvi_st_idx_s[b][i_wn]
+                pr_wvi_len_idx11 = pr_wvi_len_idx_s[b][i_wn]
+            else:
+                #print('select wv34')
+                pr_wvi_st_idx11 = pr_wvi_st_idx_e[b][i_wn]
+                pr_wvi_len_idx11 = pr_wvi_len_idx_e[b][i_wn]
             pr_wvi1.append([pr_wvi_st_idx11.item(), pr_wvi_len_idx11.item()])
         pr_wvi.append(pr_wvi1)
 
@@ -1237,7 +1244,7 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
 
 
 
-def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2):
+def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     pr_sn = pred_sn(s_sn)
     pr_sc = pred_sc(pr_sn, s_sc)
     pr_sa = pred_sa(pr_sn, s_sa)
@@ -1249,7 +1256,7 @@ def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     pr_dwn = pred_dwn(pr_wn, pr_hrpc, pr_nrpc)
     pr_wc = pred_wc(pr_dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc)
     pr_wo = pred_wo(pr_wn, s_wo)
-    pr_wvi = pred_wvi_se(pr_wn, s_wv1, s_wv2)
+    pr_wvi = pred_wvi_se(pr_wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
 
     return pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi
 

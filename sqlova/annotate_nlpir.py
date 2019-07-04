@@ -158,13 +158,9 @@ def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
     原因：'铁龙物流'在question中的token可能是 铁龙 / 物流， 而单独annote的时候可能是 铁 / 龙 / 物流
     """
     g_wvi1_corenlp = []
-    # nlu_t1_low = [tok.lower() for tok in nlu_t1]
-    nlu_t1_low = [tok for tok in nlu_t1]
     for i_wn, wv_str in enumerate(wv_str_list):
-        # wv_low = wv_str.lower()
-        wv_low = wv_str
         # stage: 找到子串的阶段，方便调试，字符串表示
-        results, stage = find_str_in_list(wv_low, nlu_t1_low)
+        results, stage = find_str_in_list(wv_str, nlu_t1)
         st_idx, ed_idx = results[0] # 选择第1个元素，忽略后面的
 
         g_wvi1_corenlp.append( [st_idx, ed_idx] )
@@ -590,9 +586,79 @@ def post_with_change_process(token_list):
     return copy
 
 
+def find_str_full_match(s, l):
+    # from stack overflow.
+    # s 包括 l 中的一个连续的子序列
+    results = []
+    s_len, l_len = len(s), len(l)
+
+    if not results:
+        # print('1-th iter')
+        for ix, token in enumerate(l):
+            if len(s) == 0 or len(token) == 0:
+                print(l)
+                continue
+            if s[0] == token[0]:
+                tmp_str, tmp_idx = '', ix
+                while len(tmp_str) < s_len and tmp_idx < l_len:
+                    tmp_str += l[tmp_idx]
+                    tmp_idx += 1
+                if tmp_str == s:
+                    # 找到完全匹配
+                    return True
+    return False
 
 
-def annotate_example_nlpir(example, table):
+def wvi_conflict(replace_list, wvi_list, ix):
+    if not replace_list:
+        return False
+    conflict = False
+    for e in replace_list:
+        # 如果没有交集
+        wvi = wvi_list[ix]
+        tmp = wvi_list[e]
+        if wvi[0] > tmp[1] or wvi[1] < tmp[0]:
+            pass
+        else:
+            conflict = True
+            break
+    return conflict
+
+
+def get_unmatch_set(token_list, wv_str_list, wvi_list):
+    replace_list = []
+    for ix, wv_str in enumerate(wv_str_list):
+        # 对于不完全匹配的都加进去
+        if not find_str_full_match(wv_str, token_list):
+            # 如果替换列表为空，或者加入替换列表的数据和已经存在的数据没有冲突
+            if not wvi_conflict(replace_list, wvi_list, ix):
+                replace_list.append(ix)
+    # 返回替换列表，列表中全部是wvi_list中的index
+    return replace_list
+
+
+def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
+    flag_list = [-1 for _ in range(len(token_list))]
+    for e in replace_list:
+        wvi = wvi_list[e]
+        for p in range(wvi[0], wvi[1]+1):
+            flag_list[p] = e
+    # flag_list: [-1,-1,-1,2,2,-1,-1,1,1,-1,-1], 非-1表示需要替换wvi_list中的值
+
+    results_list = []
+    for i, flag in enumerate(flag_list):
+        if flag == -1:
+            results_list.append(token_list[i])
+        else:
+            # 在需要进行替换的位置进行替换
+            if (flag >= 0 and i == 0) or (flag >= 0 and i > 0 and flag_list[i-1] == -1):
+                results_list.append(wv_list[flag])
+
+    return results_list
+
+
+
+def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
     Annotate only the information that will be used in our model.
@@ -606,6 +672,7 @@ def annotate_example_nlpir(example, table):
 
     example['question'] = example['question'].strip()   # 去除首尾空格
 
+    # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
     _nlu_ann_pk = seg.cut(example['question'])
     # _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
@@ -620,15 +687,13 @@ def annotate_example_nlpir(example, table):
     # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
 
-    # 用于测试
-    # ann['orig_tok'] = processed_nlu_token_list
-
     # 改变question进行token后的内容，以提升完全匹配的准确率
     processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
 
     # 对上一步进行操作的列表进行再操作，因为可能会出现冲突问题，如钱的问题，不是按照先后顺序处理的，如十二/块/五
     processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
 
+    # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
     # ann['table'] = {
     #     'header': [annotate(h) for h in table['header']],
@@ -647,8 +712,6 @@ def annotate_example_nlpir(example, table):
 
     wv_ann1 = []
     for conds11 in conds1:
-        # _wv_ann1 = annotate(str(conds11[2]))
-        # wv_ann11 = pre_translate(_wv_ann1['gloss'], annotate_dic)
         wv_ann11_str = str(conds11[2])
         # wv_ann1.append(str(conds11[2]))
         wv_ann1.append(wv_ann11_str)
@@ -658,7 +721,30 @@ def annotate_example_nlpir(example, table):
     try:
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
-        # wvi1_corenlp = check_wv_tok_in_nlu_tok(wv_ann1, ann['question_tok'])
+        # 不匹配的wvi不冲突
+        unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
+        if unmatch_set and split != 'test':
+            # 如果存在不匹配的列表
+            # print('unmatch_set find')
+            question_tok_new = replace_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp, unmatch_set)
+
+            # 重新分词进行token, 确定wvi的值
+            question_new = ''.join(question_tok_new)
+
+            # 分别使用中科大的和北大的分词系统进行分词
+            _nlu_ann_pr_new = pr.segment(question_new,  pos_tagging=False)
+            _nlu_ann_pk_new = seg.cut(question_new)
+            _nlu_ann_new = seg_summary(question_new, _nlu_ann_pr_new, _nlu_ann_pk_new, None)
+
+            _nlu_ann_new = pre_no_change_process(_nlu_ann_new)
+            _nlu_ann_new = pre_with_change_process(_nlu_ann_new)
+            _nlu_ann_new = post_with_change_process(_nlu_ann_new)
+
+            # state 变量方便调试
+            wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, _nlu_ann_new)
+
+            ann['question_tok'] = _nlu_ann_new
+
         ann['wvi_corenlp'] = wvi1_corenlp
         ann['stage'] = state
     except:
@@ -750,7 +836,7 @@ if __name__ == '__main__':
                 cnt += 1
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
-                a = annotate_example_nlpir(d, tables[d['table_id']])
+                a = annotate_example_nlpir(d, tables[d['table_id']], split)
                 # print(a)
                 # if cnt > 10:
                 #     break

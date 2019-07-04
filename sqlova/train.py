@@ -27,6 +27,7 @@ from sqlnet.dbengine import DBEngine
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 ################################################################
 # 设置logging,同时输出到文件和屏幕
 import logging
@@ -491,6 +492,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
                 (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt))
 
             # print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
+
     
     ave_loss = ave_loss / cnt
     acc_sn = cnt_sn / cnt

@@ -51,6 +51,7 @@ class Seq2SQL_v1(nn.Module):
         
         self.wvp3 = WVP_se3(iS, hS, lS, dr, n_cond_ops, old=old)
         self.wvp4 = WVP_se4(iS, hS, lS, dr, n_cond_ops, old=old)
+        self.pick = PICK(iS, hS, lS, dr)
 
 
     def forward(self, mvl, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wemb_v, l_npu, l_token,
@@ -168,9 +169,10 @@ class Seq2SQL_v1(nn.Module):
             
         s_wv4 = self.wvp4(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi3=pr_wvi3, mvl=mvl, show_p_wv=show_p_wv)
         
+        s_pick = self.pick(s_wv1, s_wv3)
         
 
-        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4
+        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick
 
     def beam_forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, engine, tb,
                      nlu_t, nlu_wp_t, wp_to_wh_index, nlu,
@@ -2142,7 +2144,46 @@ class WVP_se4(nn.Module):
                 
         return s_wv4
 
-def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl):
+class PICK(nn.Module):
+    def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
+        super(PICK, self).__init__()
+        self.iS = iS
+        self.hS = hS
+        self.lS = lS
+        self.dr = dr
+
+        # self.W_n = nn.Linear(hS, hS)
+        self.pick_out = nn.Sequential(
+            nn.Linear(2, hS),
+            nn.GroupNorm(2, 4),
+            nn.Tanh(),
+            nn.Linear(hS, 2)
+        )
+        # self.wv_out = nn.Sequential(
+        #     nn.Linear(3 * hS, hS),
+        #     nn.Tanh(),
+        #     nn.Linear(hS, self.gdkL)
+        # )
+
+        self.softmax_dim1 = nn.Softmax(dim=1)
+        self.softmax_dim2 = nn.Softmax(dim=2)
+    def forward(self, s_wv1, s_wv3):
+        p1 = self.softmax_dim2(s_wv1)
+        p3 = self.softmax_dim2(s_wv3)
+        maxwv1, _ = p1.max(dim=2)#[bs, 4]
+        meanwv1 = p1.mean(dim=2)
+        maxwv3, _ = p3.max(dim=2)
+        meanwv3 = p3.mean(dim=2)
+        gap1 = maxwv1 - meanwv1
+        gap2 = maxwv3 - meanwv3
+        vec = torch.cat([gap1.unsqueeze(2), gap2.unsqueeze(2)], dim=2)
+        s_pick = self.pick_out(vec)#[bs, 4, 2]
+        #print(s_pick.size())
+        
+        return s_pick#代表每一个batch下的每一个where column下的选择s_wv12还是s_wv34
+        
+
+def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl):
     """
 
     :param s_wv: score  [ B, n_conds, T, score]
@@ -2163,6 +2204,7 @@ def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     loss += Loss_wo(s_wo, g_wn, g_wo)
     loss += Loss_wv_se(s_wv1, s_wv2, g_wn, g_wvi)
     loss += Loss_wv_se_ed(s_wv3, s_wv4, g_wn, g_wvi, mvl)
+    loss += Loss_pick(s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_wn, g_wvi, mvl)
 
     return loss
 
@@ -2322,6 +2364,38 @@ def Loss_wv_se_ed(s_wv3, s_wv4, g_wn, g_wvi, mvl):
     
     return loss
 
+def Loss_pick(s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_wn, g_wvi, mvl):
+    loss = 0
+    #batchSize = len(g_wvi)
+    pr_wvi_st_idx_s = s_wv1.argmax(dim=2) # [B, 4, mL] -> [B, 4]
+    pr_wvi_len_idx_s = s_wv2.argmax(dim=2)
+    pr_wvi_len_idx_e = mvl - 1 - s_wv4.argmax(dim=2)
+    pr_wvi_st_idx_e = s_wv3.argmax(dim=2) - pr_wvi_len_idx_e
+    for b, g_wvi1 in enumerate(g_wvi):
+        g_wn1 = g_wn[b]
+        if g_wn1 == 0:
+            continue
+        g_wvi1 = torch.tensor(g_wvi1).to(device)
+        g_st1 = g_wvi1[:, 0]
+        g_len1 = g_wvi1[:, 1]
+        pr_wvi_st_idx_s1 = pr_wvi_st_idx_s[b,:g_wn1]
+        pr_wvi_len_idx_s1 = pr_wvi_len_idx_s[b,:g_wn1]
+        pr_wvi_st_idx_e1 = pr_wvi_st_idx_e[b,:g_wn1]
+        pr_wvi_len_idx_e1 = pr_wvi_len_idx_e[b,:g_wn1]
+        gap_st_s = g_st1 - pr_wvi_st_idx_s1
+        gap_len_s = g_len1 - pr_wvi_len_idx_s1
+        gap_st_e = g_st1 - pr_wvi_st_idx_e1
+        gap_len_e = g_len1 - pr_wvi_len_idx_e1
+        score_s = gap_st_s.abs() + gap_len_s.abs()
+        score_e = gap_st_e.abs() + gap_len_e.abs()
+        g_score = torch.cat([score_s.unsqueeze(1), score_e.unsqueeze(1)], dim=1)
+        #print("gs: ", g_score.size())
+        g_predict = g_score.argmin(dim=1)#score越低说明与ground差距越小，说明越准
+        #print(g_predict.size())
+        loss += F.cross_entropy(s_pick[b,:g_wn1], g_predict)
+    
+    #print('pick_loss: ', loss.item() / batchSize)
+    return loss
 
 
 # ========= Decoder-Layer ===========

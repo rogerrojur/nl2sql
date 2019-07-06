@@ -231,14 +231,14 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         # score
         if not EG:
             # No Execution guided decoding
-            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
+            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
 
             # get loss & step
             #loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn)
             #unable for loss
             loss = torch.tensor([0])
             # prediction
-            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
+            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, mvl)
             pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi)
             pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
             # g_sql_i = generate_sql_i(g_sc, g_sa, g_wn, g_wc, g_wo, g_wv_str, nlu)
@@ -298,7 +298,7 @@ if __name__ == '__main__':
     #     collate_fn=lambda x: x  # now dictionary values are not merged!
     # )
     ## 4. Build & Load models
-    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert='./model_bert_best.pt', path_model='model_best.pt')
+    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert='./model_bert_best.pt', path_model='./model_best.pt')
 
     ## 4.1.
     # To start from the pre-trained models, un-comment following lines.

@@ -217,7 +217,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     for iB, t in enumerate(data_loader):
         #print('iB: ', iB)#to locate the error
 
-       
+        print(iB)
        
         # Get fields
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True)
@@ -277,7 +277,7 @@ if __name__ == '__main__':
     args = construct_hyper_param(parser)
 
     ## 2. Paths
-    path_h = 'D:\\tianChi\\nl2sql\\sqlova\\wikisql'
+    path_h = './wikisql'
     path_wikisql = os.path.join(path_h, 'data', 'tianchi')
     BERT_PT_PATH = path_wikisql
 

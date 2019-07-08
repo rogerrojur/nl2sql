@@ -524,6 +524,18 @@ def pre_no_change_process(token_list):
     return copy
 
 
+def remove_null(token_list):
+    # 去除空的
+    copy = []
+    for r in token_list:
+        r = r.strip()
+        if r != '' and r != ' ':
+            copy.append(r)
+
+    return copy
+
+
+
 def seg_summary(org_str, nlpir_list, pkuseg_list, jieba_list=None):
     """jieba_list是搜索引擎方式，可能和原始字符串不对应，我们需要亿org_str为基础，综合后两个列表"""
     spilt_indices = set()
@@ -576,12 +588,7 @@ def post_with_change_process(token_list):
 
         results.append(token)
 
-    # 去除空的
-    copy = []
-    for r in results:
-        r = r.strip()
-        if r != '' and r != ' ':
-            copy.append(r)
+    copy = remove_null(results)
 
     return copy
 
@@ -743,6 +750,8 @@ def annotate_example_nlpir(example, table, split):
             # state 变量方便调试
             wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, _nlu_ann_new)
 
+            # _nlu_ann_new = remove_null(_nlu_ann_new)
+
             ann['question_tok'] = _nlu_ann_new
 
         ann['wvi_corenlp'] = wvi1_corenlp
@@ -790,7 +799,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--din', default='./wikisql/data/tianchi/', help='data directory')
     parser.add_argument('--dout', default='./wikisql/data/tianchi/', help='output directory')
-    parser.add_argument('--split', default='train,val,test', help='comma=separated list of splits to process')
+    parser.add_argument('--split', default='test', help='comma=separated list of splits to process')
     args = parser.parse_args()
 
     answer_toy = not True

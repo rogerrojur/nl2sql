@@ -547,6 +547,12 @@ def annotate_example_jieba(example, table, split):
         ann['wvi_corenlp'] = None
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
 
+    if ann['wvi_corenlp'] != None:
+        for wvi in ann['wvi_corenlp']:
+            if wvi[1] - wvi[0] + 1 >= 3:
+                ann = None
+                break
+
     return ann
 
 
@@ -638,6 +644,9 @@ if __name__ == '__main__':
                 # if cnt > 10:
                 #     break
                 # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
+                # 如果生成的数据不符合条件，如wvi差距太大，则剔除
+                if a == None:
+                    continue
                 fo.write(json.dumps(a, ensure_ascii=False) + '\n')
                 n_written += 1
 

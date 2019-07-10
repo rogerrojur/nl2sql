@@ -167,145 +167,6 @@ def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
 
     return g_wvi1_corenlp, stage
 
-def is_all_number_word(s):
-    if not s:
-        return False
-    for c in s:
-        if c not in '两零一二三四五六七八九十百千万亿0123456789':
-            return False
-    return True
-
-
-dic1 ={u'零':0, u'一':1, u'二':2, u'三':3, u'四':4, u'五':5, u'六':6, u'七':7, u'八':8, u'九':9, u'十':10, u'百':100, u'千':1000, u'万':10000,
-       u'0':0, u'1':1, u'2':2, u'3':3, u'4':4, u'5':5, u'6':6, u'7':7, u'8':8, u'9':9,
-                u'壹':1, u'贰':2, u'叁':3, u'肆':4, u'伍':5, u'陆':6, u'柒':7, u'捌':8, u'玖':9, u'拾':10, u'佰':100, u'仟':1000, u'萬':10000,
-       u'亿':100000000}
-
-def getResultForDigit(a):
-    # '八一'
-    if len(a) == 2 and a[0] in '三四五六七八九' and a[1] in '零一二三四五六七八九':
-        return a
-    if len(a) > 0 and a[0] == '两':
-        a = '二' + a[1:]
-    if len(a) >= 3 and a[-1] in '一二三四五六七八九':
-        if a[-2] == '万': a += '千'
-        elif a[-2] == '千': a += '百'
-        elif a[-2] == '百': a += '十'
-        else: pass
-    # if a[0] in '亿万千百':
-    #     return a
-    count = 0 
-    result = 0
-    tmp = 0
-    Billion = 0  
-    try:
-        while count < len(a):
-            tmpChr = a[count]
-            #print tmpChr
-            tmpNum = dic1.get(tmpChr, None)
-            #如果等于1亿
-            if tmpNum == 100000000:
-                result = result + tmp
-                result = result * tmpNum
-                #获得亿以上的数量，将其保存在中间变量Billion中并清空result
-                Billion = Billion * 100000000 + result 
-                result = 0
-                tmp = 0
-            #如果等于1万
-            elif tmpNum == 10000:
-                result = result + tmp
-                result = result * tmpNum
-                tmp = 0
-            #如果等于十或者百，千
-            elif tmpNum >= 10:
-                if tmp == 0:
-                    tmp = 1
-                result = result + tmpNum * tmp
-                tmp = 0
-            #如果是个位数
-            elif tmpNum is not None:
-                tmp = tmp * 10 + tmpNum
-            count += 1
-
-        result = result + tmp
-        result = result + Billion
-    except:
-        return a
-    return str(result)
-
-def is_decimal_number_word(token):
-    point_idx = token.find('点')
-    if point_idx < 1 or point_idx == len(token) - 1:
-        return False
-    tt = token.split('点')
-    if len(tt) != 2:
-        return False
-
-    # 一点六四
-    return is_all_number_word(tt[0]) and is_all_number_word(tt[1])
-
-
-zh_digit_dic = {'零':'0', '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八':'8', '九':'9', 
-            '1':'1', '0':'0','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9','幺':'1'}
-
-
-helper = lambda x : ''.join([zh_digit_dic[i] for i in x])
-
-
-def getResultForDecimal(token):
-    res = ''
-    try:
-        tt = token.split('点')
-        res = getResultForDigit(tt[0]) + '.'
-        for c in tt[1]:
-            if c in zh_digit_dic:
-                res += zh_digit_dic[c]
-            else:
-                res += c
-    except:
-        return token
-    return res
-
-
-def get_numberical_value(text):
-    if len(text) == 0:
-        return None
-
-    result = None
-    is_numberical = True
-    for c in text:
-        if c not in '0123456789.-':
-            is_numberical = False
-            break
-    if is_numberical:
-        return text
-
-    is_str = True
-    for c in text:
-        # 负十
-        if c not in '零一二三四五六七八九十百千万亿点两负':
-            is_str = False
-
-    # 包含 点
-    if is_str and text.find('点') != -1:
-        result = getResultForDecimal(text) if text[0] != '负' else '-'+getResultForDecimal(text[1:])
-        for c in result:
-            if c not in '0123456789.-':
-                result = None
-                break
-        return result
-
-    # 不包含 点 
-    if is_str and text.find('点') == -1:
-        result = getResultForDigit(text) if text[0] != '负' else '-'+getResultForDigit(text[1:])
-        for c in result:
-            if c not in '0123456789-':
-                result = None
-                break
-        return result
-    
-    return None
-
 
 def pre_with_change_process(token_list):
     results = []
@@ -324,7 +185,7 @@ def pre_with_change_process(token_list):
             last_token = token_list[ix-1]
             # 16/年；
             if ix > 0 and len(last_token) == 2 and str.isdigit(last_token):
-                results[-1] = '20' + results[-1]  if int(results[-1]) <= 20 else results[-1]  # 16变成2016
+                results[-1] = '20' + results[-1]    # 16变成2016
                 results.append('年')
                 continue
             # 一六/年；
@@ -524,18 +385,6 @@ def pre_no_change_process(token_list):
     return copy
 
 
-def remove_null(token_list):
-    # 去除空的
-    copy = []
-    for r in token_list:
-        r = r.strip()
-        if r != '' and r != ' ':
-            copy.append(r)
-
-    return copy
-
-
-
 def seg_summary(org_str, nlpir_list, pkuseg_list, jieba_list=None):
     """jieba_list是搜索引擎方式，可能和原始字符串不对应，我们需要亿org_str为基础，综合后两个列表"""
     spilt_indices = set()
@@ -588,7 +437,12 @@ def post_with_change_process(token_list):
 
         results.append(token)
 
-    copy = remove_null(results)
+    # 去除空的
+    copy = []
+    for r in results:
+        r = r.strip()
+        if r != '' and r != ' ':
+            copy.append(r)
 
     return copy
 
@@ -602,9 +456,6 @@ def find_str_full_match(s, l):
     if not results:
         # print('1-th iter')
         for ix, token in enumerate(l):
-            if len(s) == 0 or len(token) == 0:
-                print(l)
-                continue
             if s[0] == token[0]:
                 tmp_str, tmp_idx = '', ix
                 while len(tmp_str) < s_len and tmp_idx < l_len:
@@ -612,8 +463,8 @@ def find_str_full_match(s, l):
                     tmp_idx += 1
                 if tmp_str == s:
                     # 找到完全匹配
-                    return True
-    return False
+                    return [ix, tmp_idx-1]
+    return None
 
 
 def wvi_conflict(replace_list, wvi_list, ix):
@@ -644,120 +495,63 @@ def get_unmatch_set(token_list, wv_str_list, wvi_list):
     return replace_list
 
 
-def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
-    flag_list = [-1 for _ in range(len(token_list))]
-    for e in replace_list:
-        wvi = wvi_list[e]
-        for p in range(wvi[0], wvi[1]+1):
-            flag_list[p] = e
-    # flag_list: [-1,-1,-1,2,2,-1,-1,1,1,-1,-1], 非-1表示需要替换wvi_list中的值
+def agg_func(token_list, words):
+    new_list = token_list
+    for word in words:
+        wvi = find_str_full_match(word, new_list)
+        if wvi == None:
+            continue
+        new_list = new_list[:wvi[0]] + [''.join(new_list[ wvi[0] : wvi[1]+1 ])] + new_list[wvi[1]+1:]
 
-    results_list = []
-    for i, flag in enumerate(flag_list):
-        if flag == -1:
-            results_list.append(token_list[i])
-        else:
-            # 在需要进行替换的位置进行替换
-            if (flag >= 0 and i == 0) or (flag >= 0 and i > 0 and flag_list[i-1] == -1):
-                results_list.append(wv_list[flag])
-
-    return results_list
+    return new_list
 
 
 
-def annotate_example_nlpir(example, table, split):
+def retok_by_table(example, table):
+    question_tok = example['question_tok']
+    table_words = set([str(w) for row in table['rows'] for w in row])
+    table_words = sorted([w for w in table_words if len(w) < 30], key=lambda x : -len(x))
+    
+    # 将token list中出现在table_words中的词进行聚合, words中的单词已经按照长度进行排序
+    retok_list = agg_func(question_tok, table_words)
+
+    return retok_list
+
+
+
+def annotate_example_jieba(example, table, split):
     """
     Jan. 2019: Wonseok
     Annotate only the information that will be used in our model.
     """
-    ann = {'table_id': example['table_id']}
+    ann = example
 
-    # 语气词
-    # special_words = ['吧','罢','呗','啵','啦','来','了','嘞','哩','咧','咯','啰','喽','吗','嘛','么','哪','呢','呐']
-    special_words = ['诶，','诶','那个','那个，', '呀','啊','呃']
-    # for word in special_words:
-    #     example['question'] = example['question'].replace(word, '')
+    ann['question_tok'] = retok_by_table(example, table)
 
-    example['question'] = example['question'].strip()   # 去除首尾空格
-
-    # 分别使用中科大的和北大的分词系统进行分词
-    _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
-    _nlu_ann_pk = seg.cut(example['question'])
-    # _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
-    _nlu_ann_jb = None
-
-    # 综合 北大 分词和 pynlpir 分词的结果，二者取短
-    _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk, _nlu_ann_jb)
-    # _nlu_ann = _nlu_ann_pr
-    ann['question'] = example['question']
-
-    # 不加预处理
-    # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
-    processed_nlu_token_list = pre_no_change_process(_nlu_ann)
-
-    # 改变question进行token后的内容，以提升完全匹配的准确率
-    processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
-
-    # 对上一步进行操作的列表进行再操作，因为可能会出现冲突问题，如钱的问题，不是按照先后顺序处理的，如十二/块/五
-    processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
-
-    # 正常情况下的question_tok
-    ann['question_tok'] = processed_nlu_token_list
-    # ann['table'] = {
-    #     'header': [annotate(h) for h in table['header']],
-    # }
-    # 测试集中没有sql属性，在这个地方进行判断
-    if 'sql' not in example:
+    if 'sql' not in ann:
         return ann
 
-    ann['sql'] = example['sql']
-    ann['query'] = sql = copy.deepcopy(example['sql'])
-
-    # 对sql中conds的属性进行排序，重复的在前
-    # conds_sort(ann['sql']['conds'])
-
     conds1 = ann['sql']['conds']    # "conds": [[0, 2, "大黄蜂"], [0, 2, "密室逃生"]]
-
     wv_ann1 = []
     for conds11 in conds1:
         wv_ann11_str = str(conds11[2])
         # wv_ann1.append(str(conds11[2]))
         wv_ann1.append(wv_ann11_str)
 
-        # Check whether wv_ann exsits inside question_tok
-
     try:
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
-        # 不匹配的wvi不冲突
-        unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
-        if unmatch_set and split != 'test':
-            # 如果存在不匹配的列表
-            # print('unmatch_set find')
-            question_tok_new = replace_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp, unmatch_set)
-
-            # 重新分词进行token, 确定wvi的值
-            question_new = ''.join(question_tok_new)
-
-            # 分别使用中科大的和北大的分词系统进行分词
-            _nlu_ann_pr_new = pr.segment(question_new,  pos_tagging=False)
-            _nlu_ann_pk_new = seg.cut(question_new)
-            _nlu_ann_new = seg_summary(question_new, _nlu_ann_pr_new, _nlu_ann_pk_new, None)
-
-            _nlu_ann_new = pre_no_change_process(_nlu_ann_new)
-            _nlu_ann_new = pre_with_change_process(_nlu_ann_new)
-            _nlu_ann_new = post_with_change_process(_nlu_ann_new)
-
-            # state 变量方便调试
-            wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, _nlu_ann_new)
-
-            ann['question_tok'] = _nlu_ann_new
-
         ann['wvi_corenlp'] = wvi1_corenlp
         ann['stage'] = state
     except:
         ann['wvi_corenlp'] = None
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
+
+    if ann['wvi_corenlp'] != None:
+        for wvi in ann['wvi_corenlp']:
+            if wvi[1] - wvi[0] + 1 >= 3:
+                ann = None
+                break
 
     return ann
 
@@ -798,7 +592,7 @@ if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--din', default='./wikisql/data/tianchi/', help='data directory')
     parser.add_argument('--dout', default='./wikisql/data/tianchi/', help='output directory')
-    parser.add_argument('--split', default='test', help='comma=separated list of splits to process')
+    parser.add_argument('--split', default='train,val,test', help='comma=separated list of splits to process')
     args = parser.parse_args()
 
     answer_toy = not True
@@ -823,10 +617,11 @@ if __name__ == '__main__':
 
 
     # for split in ['train', 'val', 'test']:
+    # 对分词后的结果重新进行token，使得数据库中的词处于相同的位置
     for split in args.split.split(','):
-        fsplit = os.path.join(args.din, split) + '.json'
+        fsplit = os.path.join(args.din, split) + '_tok.json'
         ftable = os.path.join(args.din, split) + '.tables.json'
-        fout = os.path.join(args.dout, split) + '_tok.json'
+        fout = os.path.join(args.dout, split) + '_retok.json'
 
         print('annotating {}'.format(fsplit))
         with open(fsplit, encoding='utf8') as fs, open(ftable, encoding='utf8') as ft, open(fout, 'wt', encoding='utf8') as fo:
@@ -844,11 +639,14 @@ if __name__ == '__main__':
                 cnt += 1
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
-                a = annotate_example_nlpir(d, tables[d['table_id']], split)
+                a = annotate_example_jieba(d, tables[d['table_id']], split)
                 # print(a)
                 # if cnt > 10:
                 #     break
                 # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
+                # 如果生成的数据不符合条件，如wvi差距太大，则剔除
+                if a == None:
+                    continue
                 fo.write(json.dumps(a, ensure_ascii=False) + '\n')
                 n_written += 1
 

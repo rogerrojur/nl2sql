@@ -807,7 +807,7 @@ if __name__ == '__main__':
                                          st_pos=0,
                                          path_db=path_wikisql,
                                          dset_name='train',
-                                         mvl=7)
+                                         mvl=2)
         
         # check DEV
         with torch.no_grad():
@@ -823,7 +823,7 @@ if __name__ == '__main__':
                                                 path_db=path_wikisql,
                                                 st_pos=0,
                                                 dset_name='val', EG=args.EG,
-                                                mvl=7)
+                                                mvl=2)
 
 
         print_result(epoch, acc_train, 'train')

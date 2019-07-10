@@ -50,7 +50,7 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
         mode = f"{mode}"
         print('Augmented data is loaded!')
 
-    path_sql = os.path.join(path_wikisql, mode+'_tok.json')
+    path_sql = os.path.join(path_wikisql, mode+'_retok.json')
     if no_hs_tok:
         path_table = os.path.join(path_wikisql, mode + '.tables.json')
     else:
@@ -116,8 +116,8 @@ def get_fields_1(t1, tables, no_hs_t=False, no_sql_t=False):
     nlu1 = t1['question']
     nlu_t1 = t1['question_tok']
     tid1 = t1['table_id']
-    sql_i1 = []#t1['sql']# generate_result need to convert it to []
-    sql_q1 = []#t1['query']# generate_result need to convert it to []
+    sql_i1 = t1['sql']# generate_result need to convert it to []
+    sql_q1 = t1['query']# generate_result need to convert it to []
     #sql and query is the same, we may need to delete one
     if no_sql_t:
         sql_t1 = None

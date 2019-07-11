@@ -776,13 +776,13 @@ if __name__ == '__main__':
     #     collate_fn=lambda x: x  # now dictionary values are not merged!
     # )
     ## 4. Build & Load models
-    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH)
+    # model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH)
 
     ## 4.1.
     # To start from the pre-trained models, un-comment following lines.
-    # path_model_bert =
-    # path_model =
-    # model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
+    path_model_bert = 'model_bert_best.pt'
+    path_model = 'model_best.pt'
+    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
 
     ## 5. Get optimizers
     opt, opt_bert = get_opt(model, model_bert, args.fine_tune)

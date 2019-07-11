@@ -664,6 +664,18 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
     return results_list
 
 
+words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', 
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
+            '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
+            '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
+            '本科或者本科以上':'本科及本科以上'}
+def replace_words(s):
+    for key in s:
+        if s.find(key) != -1:
+            s = s.replace(key, words_dic[key])
+    return s
+
+
 
 def annotate_example_nlpir(example, table, split):
     """
@@ -679,6 +691,7 @@ def annotate_example_nlpir(example, table, split):
     #     example['question'] = example['question'].replace(word, '')
 
     example['question'] = example['question'].strip()   # 去除首尾空格
+    example['question'] = replace_words(example['question'])
 
     # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
@@ -808,11 +821,11 @@ if __name__ == '__main__':
         os.makedirs(args.dout)
 
     # 加载缩写词对应的词典,对token进行替换
-    annotate_dic = {}
-    with open('annotate_dic.txt', encoding='utf8') as fin:
-        for line in fin:
-            # 字典扩容，合并
-            annotate_dic.update(json.loads(line))
+    # annotate_dic = {}
+    # with open('annotate_dic.txt', encoding='utf8') as fin:
+    #     for line in fin:
+    #         # 字典扩容，合并
+    #         annotate_dic.update(json.loads(line))
 
     # 替换列表
     # replace_dic = {}

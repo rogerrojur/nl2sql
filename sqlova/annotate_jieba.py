@@ -497,11 +497,25 @@ def get_unmatch_set(token_list, wv_str_list, wvi_list):
 
 def agg_func(token_list, words):
     new_list = token_list
+
+    # 对token元素进行聚合, 如把腾讯/视频 变成 腾讯视频
     for word in words:
         wvi = find_str_full_match(word, new_list)
         if wvi == None:
             continue
         new_list = new_list[:wvi[0]] + [''.join(new_list[ wvi[0] : wvi[1]+1 ])] + new_list[wvi[1]+1:]
+
+    # 将token中的词替换成table中的词
+    for i, token in enumerate(new_list):
+        if len(token) < 2:
+            continue
+        ss = set()
+        for word in words:
+            # 直觉：如果token在words中只出现一次，则进行替换
+            if word.find(token) != -1:
+                ss.add(token)
+        if len(ss) == 1:
+            new_list[i] = ss.pop()
 
     return new_list
 

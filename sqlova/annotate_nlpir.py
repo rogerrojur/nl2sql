@@ -379,7 +379,7 @@ def pre_with_change_process(token_list):
             if val != None:
                 # 五/千万;
                 if ix > 0 and get_numberical_value(token_list[ix-1]) != None and token in ['千万','百万','十万']:
-                    results[:-1] = get_numberical_value(token_list[ix-1])
+                    results[-1] = get_numberical_value(token_list[ix-1])
                     tmp_val = getResultForDigit(token)
                     results.append(tmp_val[1:-4])   # 去掉首个1
                     results.append(tmp_val[-4:])

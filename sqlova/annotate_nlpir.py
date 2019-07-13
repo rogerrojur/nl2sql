@@ -814,7 +814,36 @@ def full_match_agg(token_list, table_words, conds_value, split):
 def tokens_part_match(token_list, words):
     # 对于没有进行完全匹配的token进行部分匹配
     new_list = token_list
-    
+    token_list_len = len(new_list)
+    for ix, token in enumerate(new_list):
+        # 如果token为'',则不进行处理，说明这个位置已经被替换
+        if token == '':
+            continue
+        # 如果是words中的元素，则不需要再部分匹配
+        # 也可以理解成：如果在full_match_agg()中已经被聚合，则不需要再聚合这个token
+        if token in words:
+            continue
+        # 部分匹配不对数字处理
+        if token[0] in '0123456789':
+            continue
+        for word in words:
+            if len(word) == 0:
+                continue
+            # 以第一个字符相等为触发条件
+            if token[0] == word[0]:
+                max_ratio, end_index = 0, -1
+                for end_ix in range(ix, token_list_len):
+                    tmp_str = ''.join(new_list[ix:(end_ix+1)])
+                    ratio = get_similarity(tmp_str, word)
+                    # 取最大的相似度
+                    if ratio > max_ratio:
+                        max_ratio, end_index = ratio, end_ix
+                # 如果最大的相似度大于0.6，则进行替换操作，即大概四个字重合两个字，六个字重合三个字
+                if max_ratio >= 0.6:
+                    new_list[ix] = word
+                    for t in range(ix+1, end_index+1):
+                        new_list[t] = ''  # 将这个设为''，因为已经被匹配了
+                        break
 
     # 对于一个token(长度大于1)，如果这个token只在唯一的一个word中出现，则对该word进行替换？？？
     # new_list = first_iteration(new_list, words)

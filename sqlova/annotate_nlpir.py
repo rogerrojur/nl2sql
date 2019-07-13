@@ -9,6 +9,8 @@ from tqdm import tqdm
 import copy
 import re
 
+import difflib
+
 import pynlpir as pr
 pr.open()
 
@@ -60,11 +62,31 @@ def check_wv_tok_in_nlu_tok(wv_tok1, nlu_t1):
     return g_wvi1_corenlp
 
 
+def get_end_index(str1, str2):
+    # 使用str2对str1的子串进行匹配，最终返回最优的子串的结束位置
+    max_ratio = 0
+    end_index = 0
+    for i in range(1, len(str1)):
+        ratio = difflib.SequenceMatcher(None, str1[:i], str2).quick_ratio()
+        if max_ratio < ratio:
+            max_ratio = ratio
+            end_index = i-1 # 包含最后一个字符
+
+    if max_ratio >= 0.6:
+        return end_index    # 如果找到则返回结束的index，表示[0, end_index]是和str2最相似的字符串
+    else:
+        return -1   # 如果不相似，则返回-1，表示没有找到对应的字符串
+
+
+def get_similarity(str1, str2):
+    return difflib.SequenceMatcher(None, str1, str2).quick_ratio()
+
+
 def find_str_in_list(s, l):
     # from stack overflow.
     # s 包括 l 中的一个连续的子序列
     results = []
-    stage = '0'
+    stage = '-1'
     s_len, l_len = len(s), len(l)
     # for ix, token in enumerate(l):
     #     if token.startswith(s):
@@ -75,7 +97,7 @@ def find_str_in_list(s, l):
 
     # 第一遍：假设存在完全匹配
     if not results:
-        stage = '1'
+        stage = '0'
         # print('1-th iter')
         for ix, token in enumerate(l):
             if s[0] == token[0]:
@@ -85,6 +107,22 @@ def find_str_in_list(s, l):
                     tmp_idx += 1
                 if tmp_str == s:
                     results.append((ix, tmp_idx-1))
+
+    # 如果不存在完全匹配，则进行模糊匹配, 限制条件：必须开头是相同的
+    if not results:
+        stage = '1'
+        for ix, token in enumerate(l):
+            if s[0] == token[0]:
+                max_ratio = 0
+                end_index = -1
+                for end_ix in range(ix, l_len):
+                    tmp_str = ''.join(l[ix:(end_ix+1)])
+                    ratio = get_similarity(tmp_str, s)
+                    if ratio > max_ratio:
+                        max_ratio = ratio
+                        end_index = end_ix
+                if max_ratio >= 0.6:
+                    results.append((ix, end_index))
 
     # 2017年 2017
     if not results:
@@ -415,6 +453,29 @@ def pre_with_change_process(token_list):
                 results.append('000')
                 continue
 
+        # 处理 70000000, 7000000这种数字
+        if len(token) > 4 and token[-4:] == '0000':
+            if len(token) > 8 and token[-8:-4] == '0000':
+                results.append(token[:-8])
+                results.append('0000')
+            elif len(token) > 7 and token[-7:-4] == '000':
+                results.append(token[:-7])
+                results.append('000')
+            elif len(token) > 6 and token[-6:-4] == '00':
+                results.append(token[:-6])
+                results.append('00')
+            results.append('0000')
+            continue
+
+
+        # 处理数字, 对于长度大于2的如 零点二 转化成数字
+        if len(token) > 2:
+            val = get_numberical_value(token)
+            if val != None:
+                results.append(val)
+                continue
+
+
         ############ 钱的问题 钱的问题 钱的问题 #############
         # 一/元；五十/块；一点六/元; 20/万/元,处理到万的时候变成0000，需要做判断
         # 十二/块/五/毛；十/一/块/六
@@ -466,6 +527,11 @@ def pre_with_change_process(token_list):
                 results[-1] = val
                 results.append('个')
                 continue
+
+        if len(token) > 1 and token[0] == '第':
+            results.append('第')
+            results.append(token[1:])
+            continue
 
         # 如果不符合上述规则，则直接添加到results列表
         results.append(token)
@@ -668,13 +734,32 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
-            '本科或者本科以上':'本科及本科以上'}
+            '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
+            '负数':'小于0','两万一':'21000','辣椒台':'江西卫视'}
+
+
+def is_valid_char(uchar):
+    # 中文，英文，数字，字母
+    if u'\u4e00' <= uchar <= u'\u9fa5' or u'\u0030' <= uchar <= uchar<=u'\u0039' \
+        or u'\u0041' <= uchar <= u'\u005a' or u'\u0061' <= uchar <= u'\u007a':
+        return True
+
+
 def replace_words(s):
     for key in words_dic:
         if s.find(key) != -1:
             s = s.replace(key, words_dic[key])
     return s
 
+
+def remove_special_char(s):
+    new_s = ''
+    for c in s:
+        if c in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' or \
+            c in '！？｡＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.' or \
+            is_valid_char(c):
+            new_s += c
+    return new_s
 
 
 def annotate_example_nlpir(example, table, split):
@@ -691,7 +776,8 @@ def annotate_example_nlpir(example, table, split):
     #     example['question'] = example['question'].replace(word, '')
 
     example['question'] = example['question'].strip()   # 去除首尾空格
-    example['question'] = replace_words(example['question'])
+    example['question'] = replace_words(example['question'])    # 替换
+    example['question'] = remove_special_char(example['question'])  # 去除特殊字符
 
     # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
@@ -731,11 +817,16 @@ def annotate_example_nlpir(example, table, split):
 
     conds1 = ann['sql']['conds']    # "conds": [[0, 2, "大黄蜂"], [0, 2, "密室逃生"]]
 
+    # 去除wv中的特殊字符
     wv_ann1 = []
-    for conds11 in conds1:
-        wv_ann11_str = str(conds11[2])
+    for ix, conds11 in enumerate(ann['sql']['conds']):
+        tmp_val = ann['sql']['conds'][ix][2]
+        tmp_val = remove_special_char(tmp_val)
+        ann['sql']['conds'][ix][2] = tmp_val
+        wv_ann11_str = str(tmp_val)
         # wv_ann1.append(str(conds11[2]))
         wv_ann1.append(wv_ann11_str)
+        
 
         # Check whether wv_ann exsits inside question_tok
 
@@ -743,28 +834,31 @@ def annotate_example_nlpir(example, table, split):
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # 不匹配的wvi不冲突
-        unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
-        if unmatch_set and split != 'test':
-            # 如果存在不匹配的列表
-            # print('unmatch_set find')
-            question_tok_new = replace_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp, unmatch_set)
+        # 这个变量表示，如果需要插入wv
+        insert_wv = True
+        if insert_wv:
+            unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
+            if unmatch_set and split != 'test':
+                # 如果存在不匹配的列表
+                # print('unmatch_set find')
+                question_tok_new = replace_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp, unmatch_set)
 
-            # 重新分词进行token, 确定wvi的值
-            question_new = ''.join(question_tok_new)
+                # 重新分词进行token, 确定wvi的值
+                question_new = ''.join(question_tok_new)
 
-            # 分别使用中科大的和北大的分词系统进行分词
-            _nlu_ann_pr_new = pr.segment(question_new,  pos_tagging=False)
-            _nlu_ann_pk_new = seg.cut(question_new)
-            _nlu_ann_new = seg_summary(question_new, _nlu_ann_pr_new, _nlu_ann_pk_new, None)
+                # 分别使用中科大的和北大的分词系统进行分词
+                _nlu_ann_pr_new = pr.segment(question_new,  pos_tagging=False)
+                _nlu_ann_pk_new = seg.cut(question_new)
+                _nlu_ann_new = seg_summary(question_new, _nlu_ann_pr_new, _nlu_ann_pk_new, None)
 
-            _nlu_ann_new = pre_no_change_process(_nlu_ann_new)
-            _nlu_ann_new = pre_with_change_process(_nlu_ann_new)
-            _nlu_ann_new = post_with_change_process(_nlu_ann_new)
+                _nlu_ann_new = pre_no_change_process(_nlu_ann_new)
+                _nlu_ann_new = pre_with_change_process(_nlu_ann_new)
+                _nlu_ann_new = post_with_change_process(_nlu_ann_new)
 
-            # state 变量方便调试
-            wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, _nlu_ann_new)
+                # state 变量方便调试
+                wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, _nlu_ann_new)
 
-            ann['question_tok'] = _nlu_ann_new
+                ann['question_tok'] = _nlu_ann_new
 
         ann['wvi_corenlp'] = wvi1_corenlp
         ann['stage'] = state
@@ -773,26 +867,6 @@ def annotate_example_nlpir(example, table, split):
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
 
     return ann
-
-
-def is_valid_example(e):
-    if not all([h['words'] for h in e['table']['header']]):
-        return False
-    headers = [detokenize(h).lower() for h in e['table']['header']]
-    if len(headers) != len(set(headers)):
-        return False
-    input_vocab = set(e['seq_input']['words'])
-    for w in e['seq_output']['words']:
-        if w not in input_vocab:
-            print('query word "{}" is not in input vocabulary.\n{}'.format(w, e['seq_input']['words']))
-            return False
-    input_vocab = set(e['question']['words'])
-    for col, op, cond in e['query']['conds']:
-        for w in cond['words']:
-            if w not in input_vocab:
-                print('cond word "{}" is not in input vocabulary.\n{}'.format(w, e['question']['words']))
-                return False
-    return True
 
 
 def count_lines(fname):

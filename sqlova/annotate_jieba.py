@@ -9,6 +9,8 @@ from tqdm import tqdm
 import copy
 import re
 
+import difflib
+
 import pynlpir as pr
 pr.open()
 
@@ -495,6 +497,10 @@ def get_unmatch_set(token_list, wv_str_list, wvi_list):
     return replace_list
 
 
+def get_similarity(str1, str2):
+    return difflib.SequenceMatcher(None, str1, str2).quick_ratio()
+
+
 def agg_func(token_list, words):
     new_list = token_list
 
@@ -507,6 +513,8 @@ def agg_func(token_list, words):
 
     # 将token中的词替换成table中的词
     for i, token in enumerate(new_list):
+        if len(token) > 0 and token[0] in '0123456789':
+            continue
         if len(token) < 2:
             continue
         ss = set()
@@ -520,14 +528,52 @@ def agg_func(token_list, words):
     return new_list
 
 
+def fuzzy_match(token_list, words):
+    token_list_len = len(token_list)
+    for ix, token in enumerate(token_list):
+        if len(token) > 0 and token[0] in '0123456789':
+            continue
+        if token in words:
+            continue
+        if token == '':
+            continue
+        for word in words:
+            if word[0] == token[0]:
+                max_ratio = 0
+                end_index = -1
+                for end_ix in range(ix, token_list_len):
+                    tmp_str = ''.join(token_list[ix:(end_ix+1)])
+                    ratio = get_similarity(tmp_str, word)
+                    if ratio > max_ratio:
+                        max_ratio = ratio
+                        end_index = end_ix
+                if max_ratio >= 0.6:
+                    token_list[ix] = word
+                    for t in range(ix+1, end_index+1):
+                        token_list[t] = ''  # 将这个设为''，因为已经被匹配了
+                        break
 
-def retok_by_table(example, table):
+    # 去除空的token
+    copy = []
+    for r in token_list:
+        r = r.strip()
+        if r != '' and r != ' ':
+            copy.append(r)
+
+    return copy
+
+
+
+def retok_by_table(example, table, split):
     question_tok = example['question_tok']
     table_words = set([str(w) for row in table['rows'] for w in row])
     table_words = sorted([w for w in table_words if len(w) < 30], key=lambda x : -len(x))
     
     # 将token list中出现在table_words中的词进行聚合, words中的单词已经按照长度进行排序
     retok_list = agg_func(question_tok, table_words)
+    # 模糊匹配，在对table中的词进行聚合之后，再次对部分出现在table中的词进行聚合
+    if split == 'test':
+        retok_list = fuzzy_match(retok_list, table_words)
 
     return retok_list
 
@@ -540,7 +586,7 @@ def annotate_example_jieba(example, table, split):
     """
     ann = example
 
-    ann['question_tok'] = retok_by_table(example, table)
+    ann['question_tok'] = retok_by_table(example, table, split)
 
     if 'sql' not in ann:
         return ann

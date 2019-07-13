@@ -670,7 +670,7 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
             '本科或者本科以上':'本科及本科以上'}
 def replace_words(s):
-    for key in s:
+    for key in words_dic:
         if s.find(key) != -1:
             s = s.replace(key, words_dic[key])
     return s

@@ -589,7 +589,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     results = []
     for iB, t in enumerate(data_loader):
 
-        print('iB : %d' % iB)
+        # print('iB : %d' % iB)
 
         cnt += len(t)
         if cnt < st_pos:

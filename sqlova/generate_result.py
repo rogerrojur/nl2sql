@@ -11,7 +11,7 @@ Created on Mon Jul  1 20:59:53 2019
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 222
+#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400
 from bert.modeling import BertConfig
 
 import numpy as np
@@ -217,7 +217,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     for iB, t in enumerate(data_loader):
         #print('iB: ', iB)#to locate the error
 
-        print(iB)
+        # print(iB)
        
         # Get fields
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True)
@@ -323,7 +323,7 @@ if __name__ == '__main__':
                             path_db=path_wikisql,
                             st_pos=0,
                             dset_name='test', EG=args.EG,
-                            mvl=7)
+                            mvl=2)
 
 
         # save results for the official evaluation

@@ -464,6 +464,8 @@ def pre_with_change_process(token_list):
             elif len(token) > 6 and token[-6:-4] == '00':
                 results.append(token[:-6])
                 results.append('00')
+            else:
+                results.append(token[:-4])
             results.append('0000')
             continue
 
@@ -547,6 +549,7 @@ def pre_with_change_process(token_list):
 
 
 def pre_no_change_process(token_list):
+    # 不改变句子本身，只对一些特殊的token进行进一步的细粒度划分
     results = []
     for token in token_list:
         # 针对原数据集里面的数字和汉字混合进行处理，如6月；2012年
@@ -575,7 +578,7 @@ def pre_no_change_process(token_list):
 
         if token[-1] in '个倍' and len(token) > 1:
             results.append(token[:-1])
-            results.append('个')
+            results.append(token[-1])
             continue
 
         results.append(token)
@@ -740,6 +743,7 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
 
 def is_valid_char(uchar):
     # 中文，英文，数字，字母
+    # 去除特殊字符，还有空格，换行符，制表符
     if u'\u4e00' <= uchar <= u'\u9fa5' or u'\u0030' <= uchar <= uchar<=u'\u0039' \
         or u'\u0041' <= uchar <= u'\u005a' or u'\u0061' <= uchar <= u'\u007a':
         return True
@@ -762,6 +766,71 @@ def remove_special_char(s):
     return new_s
 
 
+def find_str_wvi_full_match(s, l):
+    # from stack overflow.
+    # s 包括 l 中的一个连续的子序列
+    results = []
+    s_len, l_len = len(s), len(l)
+
+    if not results:
+        for ix, token in enumerate(l):
+            if len(token) == 0:
+                continue
+            if s[0] == token[0]:
+                tmp_str, tmp_idx = '', ix
+                while len(tmp_str) < s_len and tmp_idx < l_len:
+                    tmp_str += l[tmp_idx]
+                    tmp_idx += 1
+                if tmp_str == s:
+                    # 找到完全匹配
+                    return [ix, tmp_idx-1]
+    return None
+
+
+def tokens_full_match(token_list, words):
+    # words：候选词列表
+    # token_list: 被替换的词列表
+    new_list = token_list
+    for word in words:
+        if len(word) == 0:
+            continue
+        wvi = find_str_wvi_full_match(word, new_list)
+        if wvi == None:
+            continue
+        new_list = new_list[:wvi[0]] + [''.join(new_list[ wvi[0] : wvi[1]+1 ])] + new_list[wvi[1]+1:]
+    return new_list
+
+
+def full_match_agg(token_list, table_words, conds_value, split):
+    # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
+    new_list = token_list
+    if split == 'train':
+        new_list = tokens_full_match(new_list, conds_value)
+    else:
+        new_list = tokens_full_match(new_list, table_words)
+    return new_list
+
+
+def tokens_part_match(token_list, words):
+    # 对于没有进行完全匹配的token进行部分匹配
+    new_list = token_list
+    
+
+    # 对于一个token(长度大于1)，如果这个token只在唯一的一个word中出现，则对该word进行替换？？？
+    # new_list = first_iteration(new_list, words)
+    return new_list
+
+
+def part_match_agg(token_list, table_words, conds_value, split):
+    # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
+    new_list = token_list
+    if split != 'test':
+        new_list = tokens_part_match(new_list, conds_value)
+    else:
+        new_list = tokens_part_match(new_list, table_words)
+    return new_list
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -769,15 +838,23 @@ def annotate_example_nlpir(example, table, split):
     """
     ann = {'table_id': example['table_id']}
 
-    # 语气词
-    # special_words = ['吧','罢','呗','啵','啦','来','了','嘞','哩','咧','咯','啰','喽','吗','嘛','么','哪','呢','呐']
-    special_words = ['诶，','诶','那个','那个，', '呀','啊','呃']
-    # for word in special_words:
-    #     example['question'] = example['question'].replace(word, '')
-
     example['question'] = example['question'].strip()   # 去除首尾空格
     example['question'] = replace_words(example['question'])    # 替换
-    example['question'] = remove_special_char(example['question'])  # 去除特殊字符
+    example['question'] = remove_special_char(example['question'])  # 去除question中的特殊字符
+
+    # 去除wv中的特殊字符，可能val也需要类似的处理
+    conds_value = []
+    wv_ann1 = []
+    if split != 'test':   # val按照tables进行聚合，但是按照和train同样的方法求wvi，所以val数据集会有wvi属性
+        ann['sql'] = example['sql']
+        ann['query'] = sql = copy.deepcopy(example['sql'])
+        for ix, conds11 in enumerate(ann['sql']['conds']):
+            tmp_val = ann['sql']['conds'][ix][2]
+            tmp_val = remove_special_char(tmp_val)
+            ann['sql']['conds'][ix][2] = tmp_val
+            wv_ann1.append(tmp_val)
+            conds_value.append(tmp_val)
+        conds_value = sorted(conds_value, key=lambda x : -len(x))   # 按照字符串长度，从长到短排序
 
     # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
@@ -785,20 +862,31 @@ def annotate_example_nlpir(example, table, split):
     # _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
     _nlu_ann_jb = None
 
-    # 综合 北大 分词和 pynlpir 分词的结果，二者取短
+    # 综合 北大 分词和 pynlpir 分词的结果，二者取短, 分出来的词会比较细粒度
     _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk, _nlu_ann_jb)
     # _nlu_ann = _nlu_ann_pr
     ann['question'] = example['question']
 
     # 不加预处理
-    # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化
+    # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化, 进一步细粒度划分
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
 
+    # 获取table中的words
+    table_words = set([str(w) for row in table['rows'] for w in row])
+    table_words = sorted([w for w in table_words if len(w) < 30], key=lambda x : -len(x))   # 从长到短排序
+    # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
+    # 完全匹配可以对数字处理
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table_words, conds_value, split)
+    # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理
+    processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table_words, conds_value, split)
+
+    ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？
+
     # 改变question进行token后的内容，以提升完全匹配的准确率
-    processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
+    # processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
 
     # 对上一步进行操作的列表进行再操作，因为可能会出现冲突问题，如钱的问题，不是按照先后顺序处理的，如十二/块/五
-    processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
+    # processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
@@ -808,34 +896,15 @@ def annotate_example_nlpir(example, table, split):
     # 测试集中没有sql属性，在这个地方进行判断
     if 'sql' not in example:
         return ann
-
-    ann['sql'] = example['sql']
-    ann['query'] = sql = copy.deepcopy(example['sql'])
-
-    # 对sql中conds的属性进行排序，重复的在前
-    # conds_sort(ann['sql']['conds'])
-
-    conds1 = ann['sql']['conds']    # "conds": [[0, 2, "大黄蜂"], [0, 2, "密室逃生"]]
-
-    # 去除wv中的特殊字符
-    wv_ann1 = []
-    for ix, conds11 in enumerate(ann['sql']['conds']):
-        tmp_val = ann['sql']['conds'][ix][2]
-        tmp_val = remove_special_char(tmp_val)
-        ann['sql']['conds'][ix][2] = tmp_val
-        wv_ann11_str = str(tmp_val)
-        # wv_ann1.append(str(conds11[2]))
-        wv_ann1.append(wv_ann11_str)
         
-
-        # Check whether wv_ann exsits inside question_tok
+    # Check whether wv_ann exsits inside question_tok
 
     try:
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # 不匹配的wvi不冲突
         # 这个变量表示，如果需要插入wv
-        insert_wv = True
+        insert_wv = False
         if insert_wv:
             unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
             if unmatch_set and split != 'test':

@@ -40,10 +40,6 @@ class Seq2SQL_v1(nn.Module):
         
         self.hrpc = HRPC(iS, hS, lS, dr)# have repeated column
         
-        self.wrpc = WRPC(iS, hS, lS, dr)# which column is the repeated column
-        
-        self.nrpc = NRPC(iS, hS, lS, dr)# the number of the repeated col
-        
         self.wcp = WCP(iS, hS, lS, dr)
         self.wop = WOP(iS, hS, lS, dr, n_cond_ops)
         self.wvp1 = WVP_se(iS, hS, lS, dr, n_cond_ops, old=old) # start-end-search-discriminative model
@@ -51,7 +47,6 @@ class Seq2SQL_v1(nn.Module):
         
         self.wvp3 = WVP_se3(iS, hS, lS, dr, n_cond_ops, old=old)
         self.wvp4 = WVP_se4(iS, hS, lS, dr, n_cond_ops, old=old)
-        self.pick = PICK(iS, hS, lS, dr)
 
 
     def forward(self, mvl, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wemb_v, l_npu, l_token,
@@ -107,26 +102,10 @@ class Seq2SQL_v1(nn.Module):
         else:
             pr_hrpc = pred_hrpc(s_hrpc)
             
-        s_wrpc = self.wrpc(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wrpc=show_p_wrpc)
-        
-        #print('g_wrcn: ', g_wrcn)
-        
-        if g_wrcn:
-            pr_wrpc = [e[0] for e in g_wrcn]
-        else:
-            pr_wrpc = pred_wrpc(s_wrpc)
-        
-        s_nrpc = self.nrpc(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, pr_wn, pr_wrpc, show_p_nrpc=show_p_nrpc)#代入那一个predict出来的repeated column if not have it will put first col, but it will be masked at the loss
-        
-        if g_wrcn:
-            pr_nrpc = [e[1] for e in g_wrcn]
-        else:
-            pr_nrpc = pred_nrpc(s_nrpc)
-            
         if g_dwn:
             pr_dwn = g_dwn
         else:
-            pr_dwn = pred_dwn(pr_wn, pr_hrpc, pr_nrpc)
+            pr_dwn = pred_dwn(pr_wn, pr_hrpc)
         
         # wc
         s_wc = self.wcp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wc=show_p_wc, penalty=True)
@@ -136,7 +115,7 @@ class Seq2SQL_v1(nn.Module):
         if g_wc:
             pr_wc = g_wc
         else:
-            pr_wc = pred_wc(pr_dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc)
+            pr_wc = pred_wc(pr_dwn, s_wc, pr_wn, pr_hrpc)
         '''
         print('pr_hrpc: ', pr_hrpc)
         print('pr_wrpc: ', pr_wrpc)
@@ -169,10 +148,9 @@ class Seq2SQL_v1(nn.Module):
             
         s_wv4 = self.wvp4(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi3=pr_wvi3, mvl=mvl, show_p_wv=show_p_wv)
         
-        s_pick = self.pick(s_wv1, s_wv3)
         
 
-        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick
+        return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4
 
     def beam_forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, engine, tb,
                      nlu_t, nlu_wp_t, wp_to_wh_index, nlu,
@@ -969,205 +947,12 @@ class HRPC(nn.Module):
         
         
         for B, wr1 in enumerate(wr):
-            if wr1 != 2:# if wr is not "or" it means it will not have repeated column
+            if wr1 == 0:# if wr is not "or" it means it will not have repeated column
                 s_hrpc[B][1] = -10000000000.0
                 
         #s_hrpc = self.softmax_dim1(c_n) # [B, 2]
 
         return s_hrpc
-
-class WRPC(nn.Module):
-    def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
-        super(WRPC, self).__init__()
-        self.iS = iS
-        self.hS = hS
-        self.lS = lS
-        self.dr = dr
-
-        self.enc_h = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
-                             num_layers=lS, batch_first=True,
-                             dropout=dr, bidirectional=True)
-
-        self.enc_n = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
-                             num_layers=lS, batch_first=True,
-                             dropout=dr, bidirectional=True)
-
-        self.W_att = nn.Linear(hS, hS)
-        self.W_c = nn.Linear(hS, hS)
-        self.W_hs = nn.Linear(hS, hS)
-        self.W_out = nn.Sequential(
-            nn.Tanh(), nn.Linear(2 * hS, 1)
-        )
-
-        self.softmax_dim1 = nn.Softmax(dim=1)
-        self.softmax_dim2 = nn.Softmax(dim=2)
-
-    def forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wrpc=False, penalty=True):#loss 的时候再mask掉hrpc为False的
-        # Encode
-        wenc_n = encode(self.enc_n, wemb_n, l_n,
-                        return_hidden=False,
-                        hc0=None,
-                        last_only=False)  # [b, n, dim]
-
-        wenc_hs = encode_hpu(self.enc_h, wemb_hpu, l_hpu, l_hs)  # [b, hs, dim]
-
-        # attention
-        # wenc = [bS, mL, hS]
-        # att = [bS, mL_hs, mL_n]
-        # att[b, i_h, j_n] = p(j_n| i_h)
-        att = torch.bmm(wenc_hs, self.W_att(wenc_n).transpose(1, 2))
-
-        # penalty to blank part.
-        mL_n = max(l_n)
-        for b_n, l_n1 in enumerate(l_n):
-            if l_n1 < mL_n:
-                att[b_n, :, l_n1:] = -10000000000.0
-
-        # make p(j_n | i_h)
-        p = self.softmax_dim2(att)
-
-        if show_p_wrpc:
-            # p = [b, hs, n]
-            if p.shape[0] != 1:
-                raise Exception("Batch size should be 1.")
-            fig=figure(2001);
-            # subplot(6,2,7)
-            subplot2grid((7,2), (3, 1), rowspan=2)
-            cla()
-            _color='rgbkcm'
-            _symbol='.......'
-            for i_h in range(l_hs[0]):
-                color_idx = i_h % len(_color)
-                plot(p[0][i_h][:].data.numpy() - i_h, '--'+_symbol[color_idx]+_color[color_idx], ms=7)
-
-            title('wc: p_n for each h')
-            grid(True)
-            fig.tight_layout()
-            fig.canvas.draw()
-            show()
-        # max nlu context vectors
-        # [bS, mL_hs, mL_n]*[bS, mL_hs, mL_n]
-        wenc_n = wenc_n.unsqueeze(1)  # [ b, n, dim] -> [b, 1, n, dim]
-        p = p.unsqueeze(3)  # [b, hs, n] -> [b, hs, n, 1]
-        c_n = torch.mul(wenc_n, p).sum(2)  # -> [b, hs, dim], c_n for each header.
-
-        y = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs)], dim=2)  # [b, hs, 2*dim]
-        score = self.W_out(y).squeeze(2)  # [b, hs]
-        
-
-        if penalty:
-            for b, l_hs1 in enumerate(l_hs):
-                score[b, l_hs1:] = -10000000000.0
-                
-        #score = self.softmax_dim1(score) # [b, hs]
-
-        return score
-
-class NRPC(nn.Module):
-    def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
-        super(NRPC, self).__init__()
-        self.iS = iS
-        self.hS = hS
-        self.lS = lS
-        self.dr = dr
-
-        self.mL_w = 4 # max where condition number
-
-        self.enc_h = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
-                             num_layers=lS, batch_first=True,
-                             dropout=dr, bidirectional=True)
-
-        self.enc_n = nn.LSTM(input_size=iS, hidden_size=int(hS / 2),
-                             num_layers=lS, batch_first=True,
-                             dropout=dr, bidirectional=True)
-
-        self.W_att = nn.Linear(hS, hS)
-        self.W_c = nn.Linear(hS, hS)
-        self.W_hs = nn.Linear(hS, hS)
-        self.nrpc_out = nn.Sequential(
-            nn.Linear(2*hS, hS),
-            nn.Tanh(),
-            nn.Linear(hS, self.mL_w - 1)# it represent [2,3,4], due to it have
-        )
-
-        self.softmax_dim1 = nn.Softmax(dim=1)
-        self.softmax_dim2 = nn.Softmax(dim=2)
-
-    def forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn, wrpc, wenc_n=None, show_p_nrpc=False):#mask out of range value
-        # Encode
-        if not wenc_n:
-            wenc_n = encode(self.enc_n, wemb_n, l_n,
-                            return_hidden=False,
-                            hc0=None,
-                            last_only=False)  # [b, n, dim]
-
-        wenc_hs = encode_hpu(self.enc_h, wemb_hpu, l_hpu, l_hs)  # [b, hs, dim]
-
-        bS = len(l_hs)
-        # wn
-
-
-        wenc_hs_ob = [] # observed hs
-        for b in range(bS):
-            wenc_hs_ob1 = torch.stack([wenc_hs[b, wrpc[b]]]) # add one more dimension
-            wenc_hs_ob.append(wenc_hs_ob1)
-
-        # list to [B, 1, dim] tensor.
-        wenc_hs_ob = torch.stack(wenc_hs_ob) # list to tensor.
-        wenc_hs_ob = wenc_hs_ob.to(device)
-
-        # [B, 1, mL_n, dim] * [B, 1, dim, 1]
-        #  -> [B, 1, mL_n, 1] -> [B, 1, mL_n]
-        # multiplication bewteen NLq-tokens and  selected column
-        att = torch.matmul(self.W_att(wenc_n).unsqueeze(1),
-                              wenc_hs_ob.unsqueeze(3)
-                              ).squeeze(3)
-
-        # Penalty for blank part.
-        mL_n = max(l_n)
-        for b, l_n1 in enumerate(l_n):
-            if l_n1 < mL_n:
-                att[b, :, l_n1:] = -10000000000.0
-
-        p = self.softmax_dim2(att)  # p( n| selected_col )
-        if show_p_nrpc:
-            # p = [b, hs, n]
-            if p.shape[0] != 1:
-                raise Exception("Batch size should be 1.")
-            fig=figure(2001)
-            # subplot(6,2,7)
-            subplot2grid((7,2), (5, 0), rowspan=2)
-            cla()
-            _color='rgbkcm'
-            _symbol='.......'
-            for i_wn in range(self.mL_w):
-                color_idx = i_wn % len(_color)
-                plot(p[0][i_wn][:].data.numpy() - i_wn, '--'+_symbol[color_idx]+_color[color_idx], ms=7)
-
-            title('wo: p_n for selected h')
-            grid(True)
-            fig.tight_layout()
-            fig.canvas.draw()
-            show()
-
-        # [B, 1, mL_n, dim] * [B, 1, mL_n, 1]
-        #  --> [B, 1, mL_n, dim]
-        #  --> [B, 1, dim]
-        c_n = torch.mul(wenc_n.unsqueeze(1), p.unsqueeze(3)).sum(dim=2)
-
-        # [bS, 1, dim] -> [bS, dim] -> [bS, 4-1]
-
-        vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob)], dim=2).squeeze(1)
-        s_nrpc = self.nrpc_out(vec)
-            
-        s_nrpc = torch.cat([torch.tensor([-10000000000.0] * (bS * 2)).view(-1, 2).to(device), s_nrpc], dim = 1)#[bS, 4-1+2=5] but 0 or 1 is impossible
-        
-        for b in range(bS):
-            s_nrpc[b, wn[b] + 1:] = -10000000000.0#mask to invalid
-        #s_nrpc = self.softmax_dim1(s_nrpc)
-        #print('s_nrpc.size(): ', s_nrpc.size())
-
-        return s_nrpc
 
 class WCP(nn.Module):
     def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
@@ -1189,7 +974,9 @@ class WCP(nn.Module):
         self.W_c = nn.Linear(hS, hS)
         self.W_hs = nn.Linear(hS, hS)
         self.W_out = nn.Sequential(
-            nn.Tanh(), nn.Linear(2 * hS, 1)
+            nn.Linear(2 * hS, hS),
+            nn.Tanh(), 
+            nn.Linear(hS, 1)
         )
 
         self.softmax_dim1 = nn.Softmax(dim=1)
@@ -2144,46 +1931,7 @@ class WVP_se4(nn.Module):
                 
         return s_wv4
 
-class PICK(nn.Module):
-    def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
-        super(PICK, self).__init__()
-        self.iS = iS
-        self.hS = hS
-        self.lS = lS
-        self.dr = dr
-
-        # self.W_n = nn.Linear(hS, hS)
-        self.pick_out = nn.Sequential(
-            nn.Linear(2, hS),
-            nn.GroupNorm(2, 4),
-            nn.Tanh(),
-            nn.Linear(hS, 2)
-        )
-        # self.wv_out = nn.Sequential(
-        #     nn.Linear(3 * hS, hS),
-        #     nn.Tanh(),
-        #     nn.Linear(hS, self.gdkL)
-        # )
-
-        self.softmax_dim1 = nn.Softmax(dim=1)
-        self.softmax_dim2 = nn.Softmax(dim=2)
-    def forward(self, s_wv1, s_wv3):
-        p1 = self.softmax_dim2(s_wv1)
-        p3 = self.softmax_dim2(s_wv3)
-        maxwv1, _ = p1.max(dim=2)#[bs, 4]
-        meanwv1 = p1.mean(dim=2)
-        maxwv3, _ = p3.max(dim=2)
-        meanwv3 = p3.mean(dim=2)
-        gap1 = maxwv1 - meanwv1
-        gap2 = maxwv3 - meanwv3
-        vec = torch.cat([gap1.unsqueeze(2), gap2.unsqueeze(2)], dim=2)
-        s_pick = self.pick_out(vec)#[bs, 4, 2]
-        #print(s_pick.size())
-        
-        return s_pick#代表每一个batch下的每一个where column下的选择s_wv12还是s_wv34
-        
-
-def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl):
+def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl):
     """
 
     :param s_wv: score  [ B, n_conds, T, score]
@@ -2198,13 +1946,10 @@ def Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo,
     loss += Loss_wn(s_wn, g_wn)
     loss += Loss_wr(s_wr, g_wr)
     loss += Loss_hrpc(s_hrpc, [0 if e[0] == -1 else 1 for e in g_wrcn])
-    loss += Loss_wrpc(s_wrpc, [e[0] for e in g_wrcn])
-    loss += Loss_nrpc(s_nrpc, [e[1] for e in g_wrcn])
     loss += Loss_wc(s_wc, g_wc)
     loss += Loss_wo(s_wo, g_wn, g_wo)
     loss += Loss_wv_se(s_wv1, s_wv2, g_wn, g_wvi)
     loss += Loss_wv_se_ed(s_wv3, s_wv4, g_wn, g_wvi, mvl)
-    loss += Loss_pick(s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_wn, g_wvi, mvl)
 
     return loss
 
@@ -2252,24 +1997,9 @@ def Loss_wr(s_wr, g_wr):
     return loss
 
 def Loss_hrpc(s_hrpc, g_hrpc):
-    p = torch.sigmoid(s_hrpc)
+    #p = torch.sigmoid(s_hrpc)
+    p = s_hrpc
     loss = F.cross_entropy(p, torch.tensor(g_hrpc).to(device))
-    return loss
-
-def Loss_nrpc(s_nrpc, g_nrpc):
-    for b in range(len(g_nrpc)):
-        if g_nrpc[b] == -1:
-            g_nrpc[b] = 0
-            s_nrpc[b, 0] = 10000000000.0
-    loss = F.cross_entropy(s_nrpc, torch.tensor(g_nrpc).to(device))
-    return loss
-
-def Loss_wrpc(s_wrpc, g_wrpc):
-    for b in range(len(g_wrpc)):
-        if g_wrpc[b] == -1:
-            g_wrpc[b] = 0
-            s_wrpc[b, 0] = 10000000000.0
-    loss = F.cross_entropy(s_wrpc, torch.tensor(g_wrpc).to(device))
     return loss
 
 def Loss_wc(s_wc, g_wc):
@@ -2364,38 +2094,6 @@ def Loss_wv_se_ed(s_wv3, s_wv4, g_wn, g_wvi, mvl):
     
     return loss
 
-def Loss_pick(s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_wn, g_wvi, mvl):
-    loss = 0
-    #batchSize = len(g_wvi)
-    pr_wvi_st_idx_s = s_wv1.argmax(dim=2) # [B, 4, mL] -> [B, 4]
-    pr_wvi_len_idx_s = s_wv2.argmax(dim=2)
-    pr_wvi_len_idx_e = mvl - 1 - s_wv4.argmax(dim=2)
-    pr_wvi_st_idx_e = s_wv3.argmax(dim=2) - pr_wvi_len_idx_e
-    for b, g_wvi1 in enumerate(g_wvi):
-        g_wn1 = g_wn[b]
-        if g_wn1 == 0:
-            continue
-        g_wvi1 = torch.tensor(g_wvi1).to(device)
-        g_st1 = g_wvi1[:, 0]
-        g_len1 = g_wvi1[:, 1]
-        pr_wvi_st_idx_s1 = pr_wvi_st_idx_s[b,:g_wn1]
-        pr_wvi_len_idx_s1 = pr_wvi_len_idx_s[b,:g_wn1]
-        pr_wvi_st_idx_e1 = pr_wvi_st_idx_e[b,:g_wn1]
-        pr_wvi_len_idx_e1 = pr_wvi_len_idx_e[b,:g_wn1]
-        gap_st_s = g_st1 - pr_wvi_st_idx_s1
-        gap_len_s = g_len1 - pr_wvi_len_idx_s1
-        gap_st_e = g_st1 - pr_wvi_st_idx_e1
-        gap_len_e = g_len1 - pr_wvi_len_idx_e1
-        score_s = gap_st_s.abs() + gap_len_s.abs()
-        score_e = gap_st_e.abs() + gap_len_e.abs()
-        g_score = torch.cat([score_s.unsqueeze(1), score_e.unsqueeze(1)], dim=1)
-        #print("gs: ", g_score.size())
-        g_predict = g_score.argmin(dim=1)#score越低说明与ground差距越小，说明越准
-        #print(g_predict.size())
-        loss += F.cross_entropy(s_pick[b,:g_wn1], g_predict)
-    
-    #print('pick_loss: ', loss.item() / batchSize)
-    return loss
 
 
 # ========= Decoder-Layer ===========

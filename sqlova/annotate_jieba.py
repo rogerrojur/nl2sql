@@ -531,6 +531,7 @@ def agg_func(token_list, words):
 def fuzzy_match(token_list, words):
     token_list_len = len(token_list)
     for ix, token in enumerate(token_list):
+        # 不对数字进行匹配
         if len(token) > 0 and token[0] in '0123456789':
             continue
         if token in words:

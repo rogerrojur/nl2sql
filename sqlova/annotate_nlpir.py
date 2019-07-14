@@ -9,6 +9,8 @@ from tqdm import tqdm
 import copy
 import re
 
+import itertools
+
 import difflib
 
 import pynlpir as pr
@@ -738,7 +740,8 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
-            '负数':'小于0','两万一':'21000','辣椒台':'江西卫视'}
+            '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
+            '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述'}
 
 
 def is_valid_char(uchar):
@@ -760,7 +763,7 @@ def remove_special_char(s):
     new_s = ''
     for c in s:
         if c in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' or \
-            c in '！？｡＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.' or \
+            c in '！？｡＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.' or \
             is_valid_char(c):
             new_s += c
     return new_s
@@ -811,52 +814,159 @@ def full_match_agg(token_list, table_words, conds_value, split):
     return new_list
 
 
-def tokens_part_match(token_list, words):
-    # 对于没有进行完全匹配的token进行部分匹配
+def left_tokens_match(token_list, words, ix, word, candidate_list):
+    # 从ix位置开始对后续的tokens列表进行匹配
+    # word是当前测试匹配的候选词
+    # word[0] == token[0]才会进入该函数，候选词列表是每个长度大于2的token对应的候选词列表
+    # 函数返回从ix开始，对word最大的匹配度max_ratio和结束位置end_index
+    token = token_list[ix]
+    token_list_len = len(token_list)
+    new_list = token_list
+    max_ratio, end_index = 0, -1
+    for end_ix in range(ix, token_list_len):
+        # 如果碰到`和`字，或者碰到已经token过的词，则停止匹配
+        if new_list[end_ix] == '和' or new_list[end_ix] in words:
+            break
+        # 如果碰到两个字及以上的词，并且其对应的候选词列表长度为1，并且和正在匹配的word不同，则终止匹配
+        if end_ix > ix and len(candidate_list[end_ix]) == 1:
+            candidate_word = candidate_list[end_ix][0]
+            if word != candidate_word:
+                break
+        tmp_str = ''.join(new_list[ix:(end_ix+1)])
+        ratio = get_similarity(tmp_str, word)
+        # 取最大的相似度
+        if ratio > max_ratio:
+            max_ratio, end_index = ratio, end_ix
+    return max_ratio, end_index
+
+
+def get_best_match(token_list, words, ix, tmp_list, candidate_list):
+    """当从第ix个位置开始进行匹配时，选取words中最优的匹配词，并获取匹配度和结束的位置"""
+    # tmp_list: 表示需要从ix位置开始匹配的候选词集
+    # candidate_list: 表示每个长度大于2的token对应的候选词集
+    total_max_ratio, total_max_word, total_max_end_ix = 0, None, -1
+    for word in tmp_list:
+        max_ratio, end_index = left_tokens_match(token_list, words, ix, word, candidate_list)
+        if max_ratio > total_max_ratio:
+            total_max_ratio, total_max_word, total_max_end_ix = max_ratio, word, end_index
+    return total_max_word, total_max_ratio, total_max_end_ix
+
+
+def tokens_part_match_1th(token_list, words, other_words, candidate_list):
+    # 第一轮处理
     new_list = token_list
     token_list_len = len(new_list)
+
+    # 以token第一个字符和候选词的第一个字符相等为触发条件，进行后续token的匹配
     for ix, token in enumerate(new_list):
-        # 如果token为'',则不进行处理，说明这个位置已经被替换
-        if token == '':
-            continue
-        # 如果是words中的元素，则不需要再部分匹配
-        # 也可以理解成：如果在full_match_agg()中已经被聚合，则不需要再聚合这个token
-        if token in words:
-            continue
-        # 部分匹配不对数字处理
-        if token[0] in '0123456789':
-            continue
+        if token == '': continue        # 如果token为'',则不进行处理，说明这个位置已经被替换
+        if token in words: continue     # 如果是words中的元素，则不需要再部分匹配
+        if token[0] in '0123456789': continue   # 部分匹配 不对数字处理
+
+        total_max_ratio, total_max_word, total_max_end_ix = 0, None, -1
+        tmp_list = []
         for word in words:
             if len(word) == 0:
                 continue
-            # 以第一个字符相等为触发条件
-            if token[0] == word[0]:
-                max_ratio, end_index = 0, -1
-                for end_ix in range(ix, token_list_len):
-                    tmp_str = ''.join(new_list[ix:(end_ix+1)])
-                    ratio = get_similarity(tmp_str, word)
-                    # 取最大的相似度
-                    if ratio > max_ratio:
-                        max_ratio, end_index = ratio, end_ix
-                # 如果最大的相似度大于0.6，则进行替换操作，即大概四个字重合两个字，六个字重合三个字
-                if max_ratio >= 0.6:
-                    new_list[ix] = word
-                    for t in range(ix+1, end_index+1):
-                        new_list[t] = ''  # 将这个设为''，因为已经被匹配了
-                        break
+            if word[0] == token[0]:     # 以第一个字符相等为触发条件
+                tmp_list.append(word)
+        max_word, max_ratio, max_end_ix = get_best_match(token_list, words, ix, tmp_list, candidate_list)
+        # 阈值设定可能需要调整,范围大概是0.61~0.66
+        if max_ratio >= 0.65:
+            new_list[ix] = max_word
+            for t in range(ix+1, max_end_ix+1):
+                new_list[t] = ''  # 将这个设为''，因为已经被匹配了
 
     # 对于一个token(长度大于1)，如果这个token只在唯一的一个word中出现，则对该word进行替换？？？
     # new_list = first_iteration(new_list, words)
+    new_list = remove_null(new_list)
     return new_list
+
+
+def tokens_part_match_2th(token_list, words, other_words, candidate_list):
+    # 第二轮处理
+    # other_words用于train数据集，帮助训练，在train中是table_words,在val和test中为None
+    new_list = token_list
+    # 直觉：如果token在words中只出现一次，则进行替换
+    for ix, token in enumerate(new_list):
+        tmp_token = token   # 由于后续可能需要对token进行处理，比如在token为单字的情况下，将token和后续的token进行连接操作进行判断
+        
+        if tmp_token == '': continue    # 如果已经被处理
+        if len(tmp_token) > 0 and tmp_token[0] in '0123456789': continue    # 不对数字进行处理
+        if tmp_token in words: continue     # 如果是words中的元素，则不需要再部分匹配
+
+        # 设置最小长度为2
+        if len(token) < 2:
+            if ix < len(new_list) - 1:
+                tmp_token = tmp_token + new_list[ix+1]
+        ss = set()
+        # 这里为什么要使用table_words进行处理呢??? 不能直接使用conds words吗，先不用这句话看看效果
+        tmp_words = words if other_words == None else other_words
+        # 如果遇到单字，则和后面的token串接进行判断
+        for word in tmp_words:
+            if word.find(tmp_token) != -1:
+                ss.add(word)
+        if len(ss) == 1:
+            single_word = ss.pop()
+            if single_word not in words: continue
+            end_ix = ix
+            # ["江苏","省","农行","虹桥","支行","和","学府","路","支行"]
+            # 大table小table
+            for t in range(ix+1, len(new_list)):
+                tmp_str = ''.join(new_list[ix:t+1])
+                if tmp_str not in single_word:
+                    end_ix = t-1    # 回退一个
+                    break
+            new_list[ix] = single_word
+            for t in range(ix+1, end_ix+1):
+                new_list[t] = ''
+        # 如果当前词对应words中的不止一个词，即能进行替换的词不止一个
+        # token出现在多个词中
+        if len(ss) > 1:
+            # 如果有多个，则进行最优匹配
+            tmp_list = list(ss)
+            max_word, max_ratio, max_end_ix = get_best_match(token_list, words, ix, tmp_list, candidate_list)
+            # 阈值设定可能需要调整,范围大概是0.61~0.66
+            if max_ratio >= 0.65:
+                new_list[ix] = max_word
+                for t in range(ix+1, max_end_ix+1):
+                    new_list[t] = ''  # 将这个设为''，因为已经被匹配了
+
+    new_list = remove_null(new_list)
+    return new_list
+
+
+
+def tokens_part_match(token_list, words, other_words=None):
+    # 对于没有进行完全匹配的token进行部分匹配
+    new_list = token_list
+
+    # 对每个长度大于1的token，获取候选词(token在候选词中出现)列表
+    candidate_list = [[] for _ in range(len(token_list))]
+    for ix, token in enumerate(new_list):
+        if len(token) >= 2:
+            ss = set()
+            for word in words:
+                if word.find(token) != -1:
+                    ss.add(word)
+            candidate_list[ix] = list(ss)   # 候选词列表
+
+    # 第一轮匹配，以第一个字符相等为触发条件进行匹配
+    new_list = tokens_part_match_1th(new_list, words, other_words, candidate_list)
+
+    new_list = tokens_part_match_2th(new_list, words, other_words, candidate_list)
+
+    return new_list
+    
 
 
 def part_match_agg(token_list, table_words, conds_value, split):
     # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
     new_list = token_list
-    if split != 'test':
-        new_list = tokens_part_match(new_list, conds_value)
+    if split == 'train':
+        new_list = tokens_part_match(new_list, conds_value, None)
     else:
-        new_list = tokens_part_match(new_list, table_words)
+        new_list = tokens_part_match(new_list, table_words, None)
     return new_list
 
 
@@ -872,7 +982,7 @@ def annotate_example_nlpir(example, table, split):
     example['question'] = remove_special_char(example['question'])  # 去除question中的特殊字符
 
     # 去除wv中的特殊字符，可能val也需要类似的处理
-    conds_value = []
+    conds_value = set()
     wv_ann1 = []
     if split != 'test':   # val按照tables进行聚合，但是按照和train同样的方法求wvi，所以val数据集会有wvi属性
         ann['sql'] = example['sql']
@@ -882,8 +992,8 @@ def annotate_example_nlpir(example, table, split):
             tmp_val = remove_special_char(tmp_val)
             ann['sql']['conds'][ix][2] = tmp_val
             wv_ann1.append(tmp_val)
-            conds_value.append(tmp_val)
-        conds_value = sorted(conds_value, key=lambda x : -len(x))   # 按照字符串长度，从长到短排序
+            conds_value.add(tmp_val)
+        conds_value = sorted(list(conds_value), key=lambda x : -len(x))   # 按照字符串长度，从长到短排序
 
     # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
@@ -979,6 +1089,47 @@ def detokenize(tokens):
     return ret.strip()
 
 
+def permute_agg_sel(ann):
+    agg_and_sel_list = []
+    agg_list = [list(t) for t in itertools.permutations(ann['sql']['agg'])]
+    sel_list = [list(t) for t in itertools.permutations(ann['sql']['sel'])]
+    for agg, sel in zip(agg_list, sel_list):
+        new_dic = {'agg':agg, 'sel':sel}
+        agg_and_sel_list.append(new_dic)
+    return agg_and_sel_list
+
+
+def permute_conds_wvi(ann):
+    conds_and_wvi_list = []
+    conds_list = [list(t) for t in itertools.permutations(ann['sql']['conds'])]
+    wvi_list = [list(t) for t in itertools.permutations(ann['wvi_corenlp'])]
+    for conds, wvi in zip(conds_list, wvi_list):
+        new_dic = {'conds':conds, 'wvi_corenlp':wvi}
+        conds_and_wvi_list.append(new_dic)
+    return conds_and_wvi_list
+
+
+def data_broaden(ann):
+    # ann是一个json语句，该函数对ann进行数据增广，即交换一些数据的位置从而对数据进行扩展
+    if ann['wvi_corenlp'] == None:
+        return [ann]
+    agg_and_sel_list = permute_agg_sel(ann)     # [{agg:[0,1], sel:[1,2]},{agg:[1,0], sel:[2,1]}]
+    conds_and_wvi_list = permute_conds_wvi(ann)   # [{conds:[[4,1,"2"],[8,1,"10"]], wvi_corenlp:[[23,23],[13,13]]},{conds:[[8,1,"10"],[4,1,"2"]], wvi_corenlp:[[13,13]],[23,23]}]
+    new_ann_list = []
+    for dic1 in agg_and_sel_list:
+        for dic2 in conds_and_wvi_list:
+            new_ann = copy.deepcopy(ann)
+            new_ann['sql']['agg'] = dic1['agg']
+            new_ann['sql']['sel'] = dic1['sel']
+            new_ann['sql']['conds'] = dic2['conds']
+            new_ann['query']['agg'] = dic1['agg']
+            new_ann['query']['sel'] = dic1['sel']
+            new_ann['query']['conds'] = dic2['conds']
+            new_ann['wvi_corenlp'] = dic2['wvi_corenlp']
+            new_ann_list.append(new_ann)
+    return new_ann_list
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--din', default='./wikisql/data/tianchi/', help='data directory')
@@ -1030,12 +1181,15 @@ if __name__ == '__main__':
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
                 a = annotate_example_nlpir(d, tables[d['table_id']], split)
-                # print(a)
-                # if cnt > 10:
-                #     break
-                # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
-                fo.write(json.dumps(a, ensure_ascii=False) + '\n')
-                n_written += 1
+
+                a_list = [a]
+                # 如果数据为train，则对json语句进行数据增广，即数据进行扩展
+                # if split == 'train':
+                #     a_list = data_broaden(a)
+                for t in a_list:
+                    # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
+                    fo.write(json.dumps(t, ensure_ascii=False) + '\n')
+                    n_written += 1
 
                 if answer_toy:
                     if cnt > toy_size:

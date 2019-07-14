@@ -27,10 +27,40 @@ from sqlnet.dbengine import DBEngine
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+################################################################
+# 设置logging,同时输出到文件和屏幕
+import logging
+
+logger = logging.getLogger()  # 不加名称设置root logger
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s: - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S')
+
+# 使用FileHandler输出到文件
+if not os.path.exists('log'):
+    os.makedirs('log')
+fh = logging.FileHandler('log/log.txt')
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+
+# 使用StreamHandler输出到屏幕
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(formatter)
+
+# 添加两个Handler
+logger.addHandler(ch)
+logger.addHandler(fh)
+# logger.info('this is info message')
+################################################################
+
 def construct_hyper_param(parser):
     parser.add_argument('--tepoch', default=200, type=int)
     parser.add_argument("--bS", default=32, type=int,
                         help="Batch size")
+    parser.add_argument("--user", default=0, type=int,
+                        help="0: luokai, 1: jinhao, 2: liuchao")
     parser.add_argument("--accumulate_gradients", default=1, type=int,
                         help="The number of accumulation of backpropagation to effectivly increase the batch size.")
     parser.add_argument('--fine_tune',
@@ -206,7 +236,7 @@ def get_data(path_wikisql, args):
 
 def train(train_loader, train_table, model, model_bert, opt, bert_config, tokenizer,
           max_seq_length, num_target_layers, accumulate_gradients=1, check_grad=True,
-          st_pos=0, opt_bert=None, path_db=None, dset_name='train', mvl=7):#max value length
+          st_pos=0, opt_bert=None, path_db=None, dset_name='train', mvl=2):#max value length
     model.train()
     model_bert.train()
     #train table is a dict, key is table id, value is the whole table
@@ -240,7 +270,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         if cnt < st_pos:
             continue
         # Get fields
-        nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, train_table, no_hs_t=True, no_sql_t=True)
+        nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, train_table, no_hs_t=True, no_sql_t=True, generate_mode=False)
         # nlu  : natural language utterance
         # nlu_t: tokenized nlu
         # sql_i: canonical form of SQL query
@@ -316,7 +346,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
                             cnt -= len(t)
                             print('error: ', e)
                             raise RuntimeError('invalid training set')#only train length no larger than 8 of where value
-            g_wvi = get_g_wvi_stidx_length_jian_yi(g_wvi)
+            g_wvi = get_g_wvi_stidx_length_jian_yi(g_wvi)#不能sort，sort会导致两者对应不上
             #print('g_wvi', g_wvi[0][0])
         except:
             # Exception happens when where-condition is not found in nlu_tt.
@@ -325,7 +355,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
             # e.g. train: 32.
             continue
         # score
-        s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token,
+        s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token,
                                                    g_sn=g_sn, g_sc=g_sc, g_sa=g_sa, g_wn=g_wn, g_dwn=g_dwn, g_wr=g_wr, g_wc=g_wc, g_wo=g_wo, g_wvi=g_wvi, g_wrcn=g_wrcn)
         
         #print('g_wvi: ', g_wvi[0])
@@ -345,7 +375,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         '''
         
         # Calculate loss & step
-        loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl)
+        loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn, mvl)
         '''
         print('ave_loss', ave_loss)
         print('loss: ', loss.item())
@@ -376,7 +406,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         
         # Prediction
         #print('s_wc: ', s_wc.size())
-        pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, mvl)
+        pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
         '''
         print('pr_sn: ', pr_sn)
         print('pr_sc: ', pr_sc)
@@ -391,16 +421,18 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         print('pr_wvi: ', pr_wvi)
         '''
         pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi)
+        #print('pr_wvi_decode: ', pr_wvi_decode)
         pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
-        '''
-        print('pr_wv_str: ', pr_wv_str)
-        print('pr_wv_str_wp: ', pr_wv_str_wp)
-        '''
+        #print('pr_wv_str: ', pr_wv_str)
+        #print('pr_wv_str_wp: ', pr_wv_str_wp)
         # Sort pr_wc:
         #   Sort pr_wc when training the model as pr_wo and pr_wvi are predicted using ground-truth where-column (g_wc)
         #   In case of 'dev' or 'test', it is not necessary as the ground-truth is not used during inference.
-        pr_wc_sorted = pr_wc #sort_pr_wc(pr_wc, g_wc)
-        pr_sql_i = generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc_sorted, pr_wo, pr_wv_str, nlu)
+        pr_sc_sorted = sort_pr_wc(pr_sc, g_sc)
+        pr_wc_sorted = sort_pr_wc(pr_wc, g_wc)
+        #print('pr_wc: ', pr_wc)
+        #print('g_wc: ', g_wc)
+        pr_sql_i = generate_sql_i(pr_sc_sorted, pr_sa, pr_wn, pr_wr, pr_wc_sorted, pr_wo, pr_wv_str, nlu)
         
         #print('pr_sql_i: ', pr_sql_i)
         
@@ -456,8 +488,11 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         cnt_wv += sum(cnt_wv1_list)
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
-        if iB % 1000 == 0:
-            print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
+        if iB % 200 == 0:
+            logger.info('%d - th data batch -> loss: %.4f; acc_sn: %.4f; acc_sc: %.4f; acc_sa: %.4f; acc_wn: %.4f; acc_wr: %.4f; acc_wc: %.4f; acc_wo: %.4f; acc_wvi: %.4f; acc_wv: %.4f; acc_lx: %.4f; acc_x %.4f;' % 
+                (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt))
+            #print('train: [ ', iB, '- th data batch -> loss:', ave_loss / cnt, '; acc_sn: ', cnt_sn / cnt, '; acc_sc: ', cnt_sc / cnt, '; acc_sa: ', cnt_sa / cnt, '; acc_wn: ', cnt_wn / cnt, '; acc_wr: ', cnt_wr / cnt, '; acc_wc: ', cnt_wc / cnt, '; acc_wo: ', cnt_wo / cnt, '; acc_wvi: ', cnt_wvi / cnt, '; acc_wv: ', cnt_wv / cnt, '; acc_lx: ', cnt_lx / cnt, '; acc_x: ', cnt_x / cnt, ' ]')
+
     
     ave_loss = ave_loss / cnt
     acc_sn = cnt_sn / cnt
@@ -530,7 +565,7 @@ def report_detail(hds, nlu,
 def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
          max_seq_length,
          num_target_layers, detail=False, st_pos=0, cnt_tot=1, EG=False, beam_size=4,
-         path_db=None, dset_name='test', mvl=7):
+         path_db=None, dset_name='test', mvl=2):
     model.eval()
     model_bert.eval()
 
@@ -554,11 +589,13 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     results = []
     for iB, t in enumerate(data_loader):
 
+        #print('iB : %d' % iB)
+
         cnt += len(t)
         if cnt < st_pos:
             continue
         # Get fields
-        nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True)
+        nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True, generate_mode=False)
 
         g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n = get_g(sql_i)
         g_wrcn = g_r_c_n
@@ -593,14 +630,14 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         # score
         if not EG:
             # No Execution guided decoding
-            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
+            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
 
             # get loss & step
             #loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn)
             #unable for loss
             loss = torch.tensor([0])
             # prediction
-            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, s_pick, mvl)
+            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
             pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi)
             pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
             # g_sql_i = generate_sql_i(g_sc, g_sa, g_wn, g_wc, g_wo, g_wv_str, nlu)
@@ -715,6 +752,8 @@ if __name__ == '__main__':
 
     ## 2. Paths
     path_h = 'D:\\tianChi\\nl2sql\\sqlova\\wikisql'
+    if args.user == 1:
+        path_h = './wikisql'
     path_wikisql = os.path.join(path_h, 'data', 'tianchi')
     BERT_PT_PATH = path_wikisql
 
@@ -737,13 +776,13 @@ if __name__ == '__main__':
     #     collate_fn=lambda x: x  # now dictionary values are not merged!
     # )
     ## 4. Build & Load models
-    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert='./model_bert_best.pt', path_model='./model_best.pt')
+    # model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH)
 
     ## 4.1.
     # To start from the pre-trained models, un-comment following lines.
-    # path_model_bert =
-    # path_model =
-    # model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
+    path_model_bert = 'model_bert_best.pt'
+    path_model = 'model_best.pt'
+    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
 
     ## 5. Get optimizers
     opt, opt_bert = get_opt(model, model_bert, args.fine_tune)
@@ -768,7 +807,7 @@ if __name__ == '__main__':
                                          st_pos=0,
                                          path_db=path_wikisql,
                                          dset_name='train',
-                                         mvl=7)
+                                         mvl=2)
         
         # check DEV
         with torch.no_grad():
@@ -784,7 +823,7 @@ if __name__ == '__main__':
                                                 path_db=path_wikisql,
                                                 st_pos=0,
                                                 dset_name='val', EG=args.EG,
-                                                mvl=7)
+                                                mvl=2)
 
 
         print_result(epoch, acc_train, 'train')

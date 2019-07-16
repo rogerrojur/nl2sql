@@ -288,7 +288,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         print('hs_t: ', hs_t)
         print('hds: ', hds)
         '''
-        g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_wrcn = get_g(sql_i)#get the where values
+        g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_wrcn, wvi_change_index = get_g(sql_i)#get the where values
         '''
         print('g_sn: ', g_sn)
         print('g_sc: ', g_sc)
@@ -310,7 +310,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         #g_wo: (a list of list) where op;
         #g_wv: (a list of list) where val;
         # get ground truth where-value index under CoreNLP tokenization scheme. It's done already on trainset.
-        g_wvi_corenlp = get_g_wvi_corenlp(t)
+        g_wvi_corenlp = get_g_wvi_corenlp(t, wvi_change_index)
         # this function is to get the indices of where values from the question token
 
         wemb_n, wemb_h, l_n, l_hpu, l_hs, \
@@ -597,9 +597,9 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         # Get fields
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True, generate_mode=False)
 
-        g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n = get_g(sql_i)
+        g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n, wvi_change_index = get_g(sql_i)
         g_wrcn = g_r_c_n
-        g_wvi_corenlp = get_g_wvi_corenlp(t)
+        
 
         wemb_n, wemb_h, l_n, l_hpu, l_hs, \
         nlu_tt, t_to_tt_idx, tt_to_t_idx, wemb_v, l_npu, l_token \
@@ -607,6 +607,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
                             num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers, num_out_layers_v=num_target_layers)
         try:#here problem
             #print('ok')
+            g_wvi_corenlp = get_g_wvi_corenlp(t, wvi_change_index)
             g_wvi = get_g_wvi_bert_from_g_wvi_corenlp(t_to_tt_idx, g_wvi_corenlp)
             #print('no')
             

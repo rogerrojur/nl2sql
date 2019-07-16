@@ -742,7 +742,8 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
-            '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学'}
+            '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
+            '毫克':'mg','写的':'著的'}
 
 
 def is_valid_char(uchar):
@@ -764,7 +765,7 @@ def remove_special_char(s):
     new_s = ''
     for c in s:
         if c in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' or \
-            c in '！？｡＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.' or \
+            c in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ' or \
             is_valid_char(c):
             new_s += c
     return new_s
@@ -820,7 +821,7 @@ def full_match_agg(token_list, table, table_words, conds_value, split):
     return new_list
 
 
-def left_tokens_match(token_list, words, ix, word, candidate_list):
+def left_tokens_match(token_list, words, ix, word, candidate_list=None):
     # 从ix位置开始对后续的tokens列表进行匹配
     # word是当前测试匹配的候选词
     # word[0] == token[0]才会进入该函数，候选词列表是每个长度大于2的token对应的候选词列表
@@ -831,10 +832,11 @@ def left_tokens_match(token_list, words, ix, word, candidate_list):
     max_ratio, end_index = 0, -1
     for end_ix in range(ix, token_list_len):
         # 如果碰到`和`字，或者碰到已经token过的词，则停止匹配
-        if new_list[end_ix] == '和' or new_list[end_ix] in words:
+        # if end_ix > ix and (new_list[end_ix] == '和' or new_list[end_ix] in words):
+        if end_ix > ix and (new_list[end_ix] == '和'):
             break
         # 如果碰到两个字及以上的词，并且其对应的候选词列表长度为1，并且和正在匹配的word不同，则终止匹配
-        if end_ix > ix and len(candidate_list[end_ix]) == 1:
+        if end_ix > ix and candidate_list != None and len(candidate_list[end_ix]) == 1:
             candidate_word = candidate_list[end_ix][0]
             if word != candidate_word:
                 break
@@ -858,6 +860,14 @@ def get_best_match(token_list, words, ix, tmp_list, candidate_list):
     return total_max_word, total_max_ratio, total_max_end_ix
 
 
+def _contain_chinese(s):
+    if not s: return False
+    for uchar in s:
+        if u'\u4e00' <= uchar <= u'\u9fa5':
+            return True
+    return False
+
+
 def _qualify(words, token):
     """
     函数：对token进行检查，是否符合进行模糊匹配的条件
@@ -866,6 +876,7 @@ def _qualify(words, token):
     if token[0] in '0123456789':
         # 如果这个全部是数字并且很可能是年份，则我们假设可以进行匹配
         if str.isdigit(token) and 1970 <= int(token) <= 2050: pass
+        elif _contain_chinese(token): pass
         else: return False    # 不对数字进行处理
     # 先不用这个条件
     # if token in words: return False     # 如果是words中的元素，则不需要再部分匹配
@@ -876,10 +887,31 @@ def search_list_filter(new_list, ix, candidate_set):
     # 如果有多个，则进行最优匹配
     # 如token='英语', next_token='补习' ss = {'英语','英语补习','英语补习班'}, 则匹配以最长匹配为准，匹配为 英语补习
     # 如token='英语', next_token='课' ss = {'英语','英语补习','英语补习班'}, 则匹配为 英语
-    # token_list_len = len(new_list)
-    # if ix < token_list_len - 1:
-    #     if token_list[ix] in ss and (new_list[ix] + new_list[ix+1]) in ss:
-    #         ss.remove(token_list[ix])
+    # 如果token在ss中，不能跳过去，而是判断token+next_token是否也是candidate_set中某一个word的前缀
+    # 这个其实可以变成一个while循环，一直判断下去
+    if new_list[ix] in candidate_set and ix < len(new_list)-1:
+        tmp_token = new_list[ix] + new_list[ix+1]
+        for word in candidate_set:
+            if word.find(tmp_token) != -1 and get_similarity(tmp_token, word) > 0.7:
+                candidate_set.remove(new_list[ix])
+                break
+
+    # 如果第一轮没有去掉，则进行持续往后的匹配
+    if new_list[ix] in candidate_set:
+        tmp_token = new_list[ix]
+        end_ix = ix
+        for tx in range(ix+1, len(new_list)):
+            tmp_set = set()
+            tmp_token = tmp_token + new_list[tx]
+            for word in candidate_set:
+                if word.find(tmp_token) != -1:
+                    tmp_set.add(word)
+            if len(tmp_set) == 0:
+                end_ix = tx - 1
+                break
+        if end_ix > ix:
+            candidate_set.remove(new_list[ix])
+
     return candidate_set
 
 
@@ -898,7 +930,7 @@ def tokens_part_match_1th(token_list, words, other_words):
         if not _qualify(words, token): continue
 
         tmp_set = set()
-        if token[0] in '0123456789':
+        if token[0] in '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIGKLMNOPQRSTUVWXYZ':
             # 如果token第一个字符是数字，那么则对token进行完全匹配，即word需要包含token
             tmp_set = set([word for word in words if word.startswith(token)])
         else:
@@ -907,8 +939,11 @@ def tokens_part_match_1th(token_list, words, other_words):
 
         tmp_set = search_list_filter(new_list, ix, tmp_set)
         tmp_list = list(tmp_set)
-
-        max_word, max_ratio, max_end_ix = get_best_match(token_list, words, ix, tmp_list, candidate_list)
+        max_word, max_ratio, max_end_ix = get_best_match(new_list, words, ix, tmp_list, candidate_list)
+        # if ix < token_list_len-1 and new_list[ix] == '10' and new_list[ix+1] == 'kg':
+        #     print(new_list)
+        #     print(tmp_set)
+        #     print(max_word, max_ratio, max_end_ix)
         # 阈值设定可能需要调整,范围大概是0.61~0.66
         if max_ratio >= 0.65:
             new_list[ix] = max_word
@@ -962,8 +997,6 @@ def tokens_part_match_2th(token_list, words, other_words):
         # 如果当前词对应words中的不止一个词，即token出现在多个词中,能进行替换的词不止一个
         if len(tmp_set) > 1:
             # 搜索列表筛选, 将ss中不太可能是结果的给过滤掉
-            if new_list[ix] == '朝阳区':
-                print(tmp_set)
             tmp_set = search_list_filter(new_list, ix, tmp_set)
             # 对剩下的进行最优匹配
             tmp_list = list(tmp_set)
@@ -1048,6 +1081,16 @@ def post_process(token_list):
     return token_list
 
 
+def table_words_filter(table_words):
+    tmp_list = list(table_words)
+    for ix, elem in enumerate(tmp_list):
+        # 去除2012.0等年份表示
+        if elem.endswith('.0') and str.isdigit(elem[:-2]):
+            if 2000 <= int(elem[:-2]) <= 2050:
+                tmp_list[ix] = elem[:-2]
+    return set(tmp_list)
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -1090,12 +1133,13 @@ def annotate_example_nlpir(example, table, split):
 
     # 获取table中的words
     table_words = set([str(w) for row in table['rows'] for w in row])
-    table_words = sorted([w for w in table_words if len(w) < 30], key=lambda x : -len(x))   # 从长到短排序
+    table_words = table_words_filter(table_words)
+    table_words = sorted([w for w in table_words if len(w) < 50], key=lambda x : -len(x))   # 从长到短排序
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
-    # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理
+    # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理\
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
 
     ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？

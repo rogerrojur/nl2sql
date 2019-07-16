@@ -743,7 +743,7 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
-            '毫克':'mg','写的':'著的'}
+            '毫克':'mg','写的':'著的','3A':'AAA'}
 
 
 def is_valid_char(uchar):
@@ -1065,10 +1065,67 @@ def _process_time(token_list):
     return new_list
 
 
+def _digit_split(val):
+    res_list = []
+    if val.endswith('00000000'):
+        res_list.append(val[:-8])
+        res_list.append('0000')
+        res_list.append('0000')
+    elif val.endswith('0000'):
+        res_list.append(val[:-4])
+        res_list.append('0000')
+    else:
+        res_list.append(val)
+    return res_list
 
-def special_patten_agg(token_list):
+
+def _process_digit(token_list, table_words, conds_value):
+    new_list = []
+    words = table_words if table_words != None else conds_value
+    ix = -1
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+        if token not in words:
+            if token == '亿':
+                new_list.append('0000')
+                new_list.append('0000')
+                continue
+            if token == '万':
+                new_list.append('0000')
+                continue
+            if token == '百万':
+                new_list.append('00')
+                new_list.append('0000')
+                continue
+            if token == '千万':
+                new_list.append('000')
+                new_list.append('0000')
+                continue
+            if token[0] in '0123456789.-零一二三四五六七八九十百千万亿点两负千万百亿':
+                val = get_numberical_value(token_list[ix])
+                if val != None:
+                    new_list.extend(_digit_split(val))
+                    continue
+            # 百分之/39.56；百分之/五; 百分之/十二; 百分之/负十
+            if len(token) == 3 and token == '百分之' and ix+1 < len(token_list):
+                val = get_numberical_value(token_list[ix+1])
+                # 如果value是一个有效的数字
+                if val != None:
+                    new_list.append(val)
+                    new_list.append('%')
+                    ix += 1
+                    continue
+
+        new_list.append(token)
+    return new_list
+
+
+def special_patten_agg(token_list, table_words, conds_value):
     new_list = token_list
     new_list = _process_time(new_list)
+
+    new_list = _process_digit(new_list, table_words, conds_value)
 
     return new_list
 
@@ -1143,7 +1200,7 @@ def annotate_example_nlpir(example, table, split):
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
 
     ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？
-    processed_nlu_token_list = special_patten_agg(processed_nlu_token_list)
+    processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
 
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)

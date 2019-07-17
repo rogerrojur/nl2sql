@@ -736,14 +736,15 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
 
 
 words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', 
-            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京,上海,广州','北上':'北京和上海',
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京，上海，广州','北上':'北京和上海',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
-            '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于'}
+            '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下集':'青铜器辨伪三百例上集和青铜器辨伪三百例下集',
+            '阅读思维人生':'“阅读•思维•人生”'}
 
 
 def is_valid_char(uchar):
@@ -888,7 +889,7 @@ def _contain_non_digit(s):
     return False
 
 
-def _qualify(words, token, order):
+def _qualify(words, token, next_token, order):
     """
     函数：对token进行检查，是否符合进行模糊匹配的条件
     """
@@ -898,6 +899,7 @@ def _qualify(words, token, order):
         if str.isdigit(token) and 1970 <= int(token) <= 2050: pass
         elif _contain_chinese(token): pass
         elif _contain_non_digit(token): pass
+        elif next_token != None and next_token in '月号日': pass   # xx 月 xx 号
         # elif order==0 and token[0] == '0': pass     # 如果是第一轮处理，遇到首个0，则进行匹配
         else: return False    # 不对数字进行处理
     # 先不用这个条件
@@ -952,7 +954,8 @@ def tokens_part_match_1th(token_list, words, other_words, order):
     # 以token第一个字符和候选词的第一个字符相等为触发条件，进行后续token的匹配
     for ix, token in enumerate(new_list):
         # 如果不符合条件，则继续下一个
-        if not _qualify(words, token, order): continue
+        next_token = new_list[ix+1] if ix < token_list_len-1 else None
+        if not _qualify(words, token, next_token, order): continue
 
         tmp_set = set()
         if token[0] in '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIGKLMNOPQRSTUVWXYZ':
@@ -995,7 +998,8 @@ def tokens_part_match_2th(token_list, words, other_words, order):
     for ix, token in enumerate(new_list):
         tmp_token = token   # 由于后续可能需要对token进行处理，比如在token为单字的情况下，将token和后续的token进行连接操作进行判断
         # 如果不符合条件，则继续下一个
-        if not _qualify(words, tmp_token, order): continue
+        next_token = new_list[ix+1] if ix < token_list_len-1 else None
+        if not _qualify(words, tmp_token, next_token, order): continue
 
         # 如果token的长度为1，则加上后面的token一起匹配，如 红/楼/梦
         if len(token) == 1:
@@ -1025,7 +1029,8 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             # 徐伟水泥制品厂 徐伟 0.5
             # 可能需要针对train进行单独处理，毕竟train的val很少
             similarity = get_similarity(tmp_str, single_word)
-            if (single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5:
+            if (len(words) > 3 and ((single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5)) \
+                or (len(words) <= 3 and similarity > 0.4):
                 new_list[ix] = single_word
                 for t in range(ix+1, end_ix+1):
                     new_list[t] = ''
@@ -1037,6 +1042,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             tmp_list = list(tmp_set)
             max_word, max_ratio, max_end_ix = get_best_match(token_list, words, ix, tmp_list, candidate_list)
             # 阈值设定可能需要调整,范围大概是0.61~0.66
+            # 如：管理岗位，岗位
+            if max_ratio < 0.7 and max_word != None and max_word.endswith(new_list[ix]):
+                continue
             if max_ratio >= 0.65:
                 new_list[ix] = max_word
                 for t in range(ix+1, max_end_ix+1):

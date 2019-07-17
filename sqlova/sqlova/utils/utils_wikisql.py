@@ -6,6 +6,7 @@
 import os, json
 import random as rd
 from copy import deepcopy
+import logging
 
 from matplotlib.pylab import *
 
@@ -96,7 +97,7 @@ def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev
         batch_size=bS,
         dataset=data_train,
         shuffle=shuffle_train,
-        num_workers=4,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
@@ -104,20 +105,24 @@ def get_loader_wikisql(data_train, data_dev, bS, shuffle_train=True, shuffle_dev
         batch_size=bS,
         dataset=data_dev,
         shuffle=shuffle_dev,
-        num_workers=4,
+        num_workers=0,
         collate_fn=lambda x: x  # now dictionary values are not merged!
     )
 
     return train_loader, dev_loader
 
 
-def get_fields_1(t1, tables, no_hs_t=False, no_sql_t=False):
+def get_fields_1(t1, tables, no_hs_t=False, no_sql_t=False, generate_mode=False):
     #only query+label data has token, table data does not have token
     nlu1 = t1['question']
     nlu_t1 = t1['question_tok']
     tid1 = t1['table_id']
-    sql_i1 = []#t1['sql']# generate_result need to convert it to []
-    sql_q1 = []#t1['query']# generate_result need to convert it to []
+    if generate_mode:
+        sql_i1 = []# generate_result need to convert it to []
+        sql_q1 = []# generate_result need to convert it to []
+    else:
+        sql_i1 = t1['sql']# generate_result need to convert it to []
+        sql_q1 = t1['query']# generate_result need to convert it to []
     #sql and query is the same, we may need to delete one
     if no_sql_t:
         sql_t1 = None
@@ -134,11 +139,11 @@ def get_fields_1(t1, tables, no_hs_t=False, no_sql_t=False):
 
     return nlu1, nlu_t1, tid1, sql_i1, sql_q1, sql_t1, tb1, hs_t1, hs1
 
-def get_fields(t1s, tables, no_hs_t=False, no_sql_t=False):#t1s is the query+label data from one batch, tables is the db.tables
+def get_fields(t1s, tables, no_hs_t=False, no_sql_t=False, generate_mode=False):#t1s is the query+label data from one batch, tables is the db.tables
 
     nlu, nlu_t, tid, sql_i, sql_q, sql_t, tb, hs_t, hs = [], [], [], [], [], [], [], [], []
     for t1 in t1s:#t1 is a query with y value
-        nlu1, nlu_t1, tid1, sql_i1, sql_q1, sql_t1, tb1, hs_t1, hs1 = get_fields_1(t1, tables, no_hs_t, no_sql_t)
+        nlu1, nlu_t1, tid1, sql_i1, sql_q1, sql_t1, tb1, hs_t1, hs1 = get_fields_1(t1, tables, no_hs_t, no_sql_t, generate_mode=generate_mode)
         nlu.append(nlu1)#ok
         nlu_t.append(nlu_t1)#ok
         tid.append(tid1)#ok
@@ -354,7 +359,7 @@ def get_wrcn1(cols):
 def re_order(conds, rp_key):
     srr = [i for i in range(len(conds)) if conds[i] == rp_key]
     err = [i for i in range(len(conds)) if i not in srr]
-    return list(array(conds)[srr + err])
+    return array(conds)[srr + err].tolist()
 
 
 def get_g(sql_i):
@@ -369,30 +374,33 @@ def get_g(sql_i):
     g_wo = []#whe op list of list
     g_wv = []#whe val list of list
     g_r_c_n = []#whe repeated col index and its number list of list(type : [col_n, nb]) if [-1, -1] it means there is no repeated col
+    wvi_change_index = []
     for psql_i1 in sql_i:
         if (len(psql_i1["sel"]) == len(psql_i1["agg"])):
             g_sn.append(len(psql_i1["sel"]))
             sels = psql_i1["sel"]
             for i in range(len(sels)):
                 sels[i] = int(sels[i])
+            sels_index = array(sels).argsort().tolist()#新尝试
+            sels.sort()#新尝试
             g_sc.append(sels)
             aggs = psql_i1["agg"]
             for i in range(len(aggs)):
                 aggs[i] = int(aggs[i])
-            g_sa.append(aggs)
+            g_sa.append(array(aggs)[sels_index].tolist())
 
             conds = psql_i1['conds']
+            conds_index = list(map(lambda x : x[0], array(conds).argsort(axis=0).tolist()))#新尝试
+            wvi_change_index.append(conds_index)#新尝试
+            conds.sort(key=lambda x : x[0])#新尝试
             if len(conds) != 0:
                 for i in range(len(conds)):
                     for j in range(2):
                         conds[i][j] = int(conds[i][j])
-            conds.sort()
             if all([0 <= e <= 5 for e in g_sa[-1]]):#if agg is valid 0~5
                 g_wr.append(int(psql_i1["cond_conn_op"]))
                 if 0 <= g_wr[-1] <= 2:
                     g_r_c_n.append(get_wrcn1(get_wc1(conds)))
-                    if int(g_r_c_n[-1][0]) != -1:# it means it have repeated cols, it need to reorder the conds
-                        conds = re_order(conds, int(g_r_c_n[-1][0]))
                     g_wc.append( get_wc1(conds))
                     g_wn.append(len(g_wc[-1]))
                     g_dwn.append(g_wn[-1] if g_r_c_n[-1][0] == -1 else g_wn[-1] - g_r_c_n[-1][1] + 1)
@@ -401,12 +409,19 @@ def get_g(sql_i):
         else:
             raise EnvironmentError
     #print(g_wc)
-    return g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n
+    return g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_r_c_n, wvi_change_index
 
-def get_g_wvi_corenlp(t):
+def get_g_wvi_corenlp(t, wvi_change_index):
     g_wvi_corenlp = []
-    for t1 in t:
-        g_wvi_corenlp.append( t1['wvi_corenlp'] )
+    for t1, wvi_change_index1 in zip(t, wvi_change_index):
+        '''
+        print('-------------------error-----------------------')
+        print('wvi_corenlp: ', t1['wvi_corenlp'])
+        print('wvi_change_index: ', wvi_change_index1)
+        print(t1)
+        print('-------------------error-----------------------')
+        '''
+        g_wvi_corenlp.append(array(t1['wvi_corenlp'])[wvi_change_index1].tolist())
     return g_wvi_corenlp
 
 
@@ -957,10 +972,10 @@ def pred_sc(sn, s_sc):
     for b, sn1 in enumerate(sn):
         s_sc1 = s_sc[b]
 
-        pr_sc1 = argsort(-s_sc1.data.cpu().numpy())[:sn1]
-        pr_sc1.sort()
+        pr_sc1 = argsort(-s_sc1.data.cpu().numpy())[:sn1].tolist()
+        pr_sc1.sort()#sort 可能是导致错位的罪魁祸首
 
-        pr_sc.append(list(pr_sc1))
+        pr_sc.append(pr_sc1)
     return pr_sc
 
 
@@ -985,7 +1000,7 @@ def pred_sa(sn, s_sa):
     # get g_num
     for b, pr_sa_a1 in enumerate(pr_sa_a):
         sn1 = sn[b]
-        pr_sa.append(list(pr_sa_a1.data.cpu().numpy()[:sn1]))
+        pr_sa.append(pr_sa_a1.data.cpu().numpy()[:sn1].tolist())
 
     return pr_sa
 
@@ -1010,14 +1025,8 @@ def pred_wr(wn, s_wr):
 def pred_hrpc(s_hrpc):
     return [s_hrpc1.argmax().item() for s_hrpc1 in s_hrpc]
 
-def pred_wrpc(s_wrpc):
-    return [s_wrpc1.argmax().item() for s_wrpc1 in s_wrpc]
-
-def pred_nrpc(s_nrpc):
-    return [s_nrpc1.argmax().item() for s_nrpc1 in s_nrpc]
-
-def pred_dwn(wn, hrpc, nrpc):
-    return [wn1 if hrpc1 == 0 else wn1 - nrpc1 + 1 for wn1, hrpc1, nrpc1 in zip(wn, hrpc, nrpc)]
+def pred_dwn(wn, hrpc):
+    return [wn1 if hrpc1 == 0 else 1 for wn1, hrpc1 in zip(wn, hrpc)]
 
 def pred_wc_old(sql_i, s_wc):
     """
@@ -1029,13 +1038,13 @@ def pred_wc_old(sql_i, s_wc):
         wn = len(sql_i1['conds'])
         s_wc1 = s_wc[b]
 
-        pr_wc1 = argsort(-s_wc1.data.cpu().numpy())[:wn]
-        pr_wc1.sort()
+        pr_wc1 = argsort(-s_wc1.data.cpu().numpy())[:wn].tolist()
+        pr_wc1.sort()#sort 可能是导致错位的罪魁祸首
 
-        pr_wc.append(list(pr_wc1))
+        pr_wc.append(pr_wc1)
     return pr_wc
 
-def pred_wc(dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc):
+def pred_wc(dwn, s_wc, wn, pr_hrpc):
     """
     return: [ pr_wc1_i, pr_wc2_i, ...]
     ! Returned index is sorted!
@@ -1046,23 +1055,15 @@ def pred_wc(dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc):
     for b, wn1 in enumerate(dwn):
         s_wc1 = s_wc[b]
         
-        #print('batch id: ', b, '; swc1: ', s_wc1, '; pr_hrpc: ', pr_hrpc[b], '; pr_wrpc: ', pr_wrpc[b], '; pr_nrpc: ', pr_nrpc[b])
+        #print('batch id: ', b, '; swc1: ', s_wc1, '; pr_hrpc: ', pr_hrpc[b])
 
-        pr_wc1 = list(argsort(-s_wc1.data.cpu().numpy())[:wn1])
+        pr_wc1 = argsort(-s_wc1.data.cpu().numpy())[:wn1].tolist()
         
         #print('A: pr_wc1: ', pr_wc1)
-        
         if pr_hrpc[b]:
-            l1 = len(pr_wc1)
-            pr_wc1 = [e for e in pr_wc1 if e != pr_wrpc[b]]
-            l2 = len(pr_wc1)
-            if l1 == l2:
-                pr_wc1 = pr_wc1[:-1]
-            pr_wc1.sort()
-            #print('C: pr_wc1: ', pr_wc1)
-            pr_wc1 = [pr_wrpc[b]] * pr_nrpc[b] + pr_wc1
+            pr_wc1 = pr_wc1 * wn[b]
         else:
-            pr_wc1.sort()
+            pr_wc1.sort()#sort 可能是导致错位的罪魁祸首
         
         #print('B: pr_wc1: ', pr_wc1)
         
@@ -1082,7 +1083,7 @@ def pred_wc_sorted_by_prob(s_wc):
     for b in range(bS):
         s_wc1 = s_wc[b]
         pr_wc1 = argsort(-s_wc1.data.cpu().numpy())
-        pr_wc.append(list(pr_wc1))
+        pr_wc.append(pr_wc1.tolist())
     return pr_wc
 
 
@@ -1096,16 +1097,25 @@ def pred_wo(wn, s_wo):
     pr_wo = []
     for b, pr_wo_a1 in enumerate(pr_wo_a):
         wn1 = wn[b]
-        pr_wo.append(list(pr_wo_a1.data.cpu().numpy()[:wn1]))
+        pr_wo.append(pr_wo_a1.data.cpu().numpy()[:wn1].tolist())
 
     return pr_wo
 
 def pred_wvi1(wn, s_wvi1):
     pr_wvi1 = []
     for b, s_wvi11 in enumerate(s_wvi1):
-        pr_wvi1.append([e.argmax().item() for e in s_wvi11[:wn[b]]])
+        if wn[b]:
+            pr_wvi1.append([e.argmax().item() for e in s_wvi11[:wn[b]]])
+        else:
+            pr_wvi1.append([])
         
     return pr_wvi1
+
+def full_matrix(m, max_wn=4):
+    for b in range(len(m)):
+        m[b] = m[b] + [0] * (max_wn - len(m[b]))
+    r = torch.tensor(m)
+    return r
 
 def pred_wvi_se(wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     """
@@ -1120,10 +1130,12 @@ def pred_wvi_se(wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     meanwv3 = p3.mean(dim=2)
     #s_wv_st = s_wv_st.squeeze(3) # [B, 4, mL, 1] -> [B, 4, mL]
     #s_wv_ed = s_wv_ed.squeeze(3)
-    pr_wvi_st_idx_s = s_wv1.argmax(dim=2) # [B, 4, mL] -> [B, 4]
+    pr_wv1 = full_matrix(pred_wvi1(wn, s_wv1)).to(device)
+    pr_wv3 = full_matrix(pred_wvi1(wn, s_wv3)).to(device)
+    pr_wvi_st_idx_s = pr_wv1 # [B, 4]
     pr_wvi_len_idx_s = s_wv2.argmax(dim=2)
     pr_wvi_len_idx_e = mvl - 1 - s_wv4.argmax(dim=2)
-    pr_wvi_st_idx_e = s_wv3.argmax(dim=2) - pr_wvi_len_idx_e
+    pr_wvi_st_idx_e = pr_wv3 - pr_wvi_len_idx_e
     pr_wvi = []
     for b, wn1 in enumerate(wn):
         pr_wvi1 = []
@@ -1244,21 +1256,19 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
 
 
 
-def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
+def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     pr_sn = pred_sn(s_sn)
     pr_sc = pred_sc(pr_sn, s_sc)
     pr_sa = pred_sa(pr_sn, s_sa)
     pr_wn = pred_wn(s_wn)
     pr_wr = pred_wr(pr_wn, s_wr)
     pr_hrpc = pred_hrpc(s_hrpc)
-    pr_wrpc = pred_wrpc(s_wrpc)
-    pr_nrpc = pred_nrpc(s_nrpc)
-    pr_dwn = pred_dwn(pr_wn, pr_hrpc, pr_nrpc)
-    pr_wc = pred_wc(pr_dwn, pr_hrpc, pr_wrpc, pr_nrpc, s_wc)
+    pr_dwn = pred_dwn(pr_wn, pr_hrpc)
+    pr_wc = pred_wc(pr_dwn, s_wc, pr_wn, pr_hrpc)
     pr_wo = pred_wo(pr_wn, s_wo)
     pr_wvi = pred_wvi_se(pr_wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
 
-    return pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wrpc, pr_nrpc, pr_wc, pr_wo, pr_wvi
+    return pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wc, pr_wo, pr_wvi
 
 
 
@@ -1269,54 +1279,8 @@ def merge_wv_t1_eng(where_str_tokens, NLq):
     Almost copied of SQLNet.
     The main purpose is pad blank line while combining tokens.
     """
-    nlq = NLq
-    where_str_tokens = [tok for tok in where_str_tokens]
-    alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789$'
-    special = {'-LRB-': '(',
-               '-RRB-': ')',
-               '-LSB-': '[',
-               '-RSB-': ']',
-               '``': '"',
-               '\'\'': '"',
-               }
-               # '--': '\u2013'} # this generate error for test 5661 case.
     ret = ''
-    double_quote_appear = 0
-    for raw_w_token in where_str_tokens:
-        # if '' (empty string) of None, continue
-        if not raw_w_token:
-            continue
-
-        # Change the special characters
-        w_token = special.get(raw_w_token, raw_w_token)  # maybe necessary for some case?
-
-        # check the double quote
-        if w_token == '"':
-            double_quote_appear = 1 - double_quote_appear
-
-        # Check whether ret is empty. ret is selected where condition.
-        if len(ret) == 0:
-            pass
-        # Check blank character.
-        elif len(ret) > 0 and ret + ' ' + w_token in nlq:
-            # Pad ' ' if ret + ' ' is part of nlq.
-            ret = ret
-
-        elif len(ret) > 0 and ret + w_token in nlq:
-            pass  # already in good form. Later, ret + w_token will performed.
-
-        # Below for unnatural question I guess. Is it likely to appear?
-        elif w_token == '"':
-            if double_quote_appear:
-                ret = ret  # pad blank line between next token when " because in this case, it is of closing apperas
-                # for the case of opening, no blank line.
-
-        elif w_token[0] not in alphabet:
-            pass  # non alphabet one does not pad blank line.
-
-        # when previous character is the special case.
-        elif (ret[-1] not in ['(', '/', '\u2013', '#', '$', '&']) and (ret[-1] != '"' or not double_quote_appear):
-            ret = ret
+    for w_token in where_str_tokens:
         ret = ret + w_token
 
     return ret.strip()
@@ -1563,13 +1527,8 @@ def get_cnt_wo(g_wn, g_wc, g_wo, pr_wc, pr_wo, mode):
         else:
             # Sort based on wc sequence.
             if mode == 'test':
-                '''
                 idx = argsort(array(g_wc1))
-
-                g_wo1_s = array(g_wo1)[idx]
-                g_wo1_s = list(g_wo1_s)
-                '''
-                g_wo1_s = g_wo1
+                g_wo1_s = array(g_wo1)[idx].tolist()
             elif mode == 'train':
                 # due to teacher forcing, no need to sort.
                 g_wo1_s = g_wo1
@@ -1602,13 +1561,8 @@ def get_cnt_wo_list(g_wn, g_wc, g_wo, pr_wc, pr_wo, mode):
         else:
             # Sort based wc sequence.
             if mode == 'test':
-                '''
                 idx = argsort(array(g_wc1))
-
-                g_wo1_s = array(g_wo1)[idx]
-                g_wo1_s = list(g_wo1_s)
-                '''
-                g_wo1_s = g_wo1
+                g_wo1_s = array(g_wo1)[idx].tolist()
             elif mode == 'train':
                 # due to tearch forcing, no need to sort.
                 g_wo1_s = g_wo1
@@ -1639,8 +1593,8 @@ def get_cnt_wv(g_wn, g_wc, g_wvi, pr_wvi, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            #idx1 = argsort(array(g_wc1))
-            idx1 = list( range( g_wn1) )
+            idx1 = argsort(array(g_wc1))
+            #idx1 = list( range( g_wn1) )
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:
@@ -1678,8 +1632,8 @@ def get_cnt_wvi_list(g_wn, g_wc, g_wvi, pr_wvi, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            idx1 = list( range( g_wn1) )
-            #idx1 = argsort(array(g_wc1))
+            #idx1 = list( range( g_wn1) )
+            idx1 = argsort(array(g_wc1))
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:
@@ -1707,7 +1661,7 @@ def get_cnt_wvi_list(g_wn, g_wc, g_wvi, pr_wvi, mode):
     return cnt_list
 
 
-def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
+def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, g_wvi, pr_wvi, mode):
     """ usalbe only when g_wc was used to find pr_wv
     """
     cnt_list =[]
@@ -1718,8 +1672,8 @@ def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
         # Now sorting.
         # Sort based wc sequence.
         if mode == 'test':
-            #idx1 = argsort(array(g_wc1))
-            idx1 = list( range( g_wn1) )
+            idx1 = argsort(array(g_wc1))
+            #idx1 = list( range( g_wn1) )
         elif mode == 'train':
             idx1 = list( range( g_wn1) )
         else:
@@ -1738,8 +1692,17 @@ def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode):
                 # print(g_wvi_str11==pr_wvi_str11)
                 if g_wvi_str11 != pr_wvi_str11:
                     flag = False
-                    # print(g_wv1, g_wv11)
-                    # print(pr_wv1, pr_wv11)
+                    '''
+                    if g_wvi[b][idx11] == pr_wvi[b][i_wn]:#当wvi正确的情况下，wv还是错误的例子
+                        print('----------------diff----------------')
+                        print('g_wvi[b]: ', g_wvi[b])
+                        print('pr_wvi[b]: ', pr_wvi[b])
+                        print('g_conds: ', str(g_sql_i[b]['conds']))
+                        print('pr_conds: ', str(pr_sql_i[b]['conds']))
+                        print('g_wvi_str11: ', g_wvi_str11)
+                        print('pr_wvi_str11: ', pr_wvi_str11)
+                        print('----------------diff----------------')
+                    '''
                     # input('')
                     break
             if flag:
@@ -1778,7 +1741,7 @@ def get_cnt_sw_list(g_sn, g_sc, g_sa, g_wn, g_wr, g_wc, g_wo, g_wvi,
         cnt_wvi = get_cnt_wvi_list(g_wn, g_wc, g_wvi, pr_wvi, mode)
     else:
         cnt_wvi = [0]*len(cnt_sc)
-    cnt_wv = get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, mode) # compare using wv-str which presented in original data.
+    cnt_wv = get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, g_wvi, pr_wvi, mode) # compare using wv-str which presented in original data.
 
 
     return cnt_sn, cnt_sc, cnt_sa, cnt_wn, cnt_wr, cnt_wc, cnt_wo, cnt_wvi, cnt_wv
@@ -2474,8 +2437,8 @@ def cal_prob_wc(s_wc, pr_wc):
     ps_out = []
     for b, pr_wc1 in enumerate(pr_wc):
         ps1 = array(ps[b].cpu())
-        ps_out1 = ps1[pr_wc1]
-        ps_out.append(list(ps_out1))
+        ps_out1 = ps1[pr_wc1].tolist()
+        ps_out.append(ps_out1)
 
     return ps_out
 
@@ -2594,7 +2557,7 @@ def sort_pr_wc(pr_wc, g_wc):
         g_wc1 = g_wc[b]
         pr_wc1_sorted = []
 
-        if set(g_wc1) == set(pr_wc1):
+        if set(g_wc1) == set(pr_wc1) and len(g_wc1) == len(pr_wc1):
             pr_wc1_sorted = deepcopy(g_wc1)
         else:
             # no sorting when g_wc1 and pr_wc1 are different.

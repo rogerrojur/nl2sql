@@ -736,14 +736,14 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
 
 
 words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', 
-            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京,上海,广州','北上':'北京和上海',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
-            '毫克':'mg','写的':'著的','3A':'AAA'}
+            '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于'}
 
 
 def is_valid_char(uchar):
@@ -752,6 +752,12 @@ def is_valid_char(uchar):
     if u'\u4e00' <= uchar <= u'\u9fa5' or u'\u0030' <= uchar <= uchar<=u'\u0039' \
         or u'\u0041' <= uchar <= u'\u005a' or u'\u0061' <= uchar <= u'\u007a':
         return True
+
+def is_punctuation_en(uchar):
+    return uchar in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
+
+def is_punctuation_ch(uchar):
+    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ'
 
 
 def replace_words(s):
@@ -764,9 +770,7 @@ def replace_words(s):
 def remove_special_char(s):
     new_s = ''
     for c in s:
-        if c in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' or \
-            c in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ' or \
-            is_valid_char(c):
+        if is_punctuation_en(c) or is_punctuation_ch(c) or is_valid_char(c):
             new_s += c
     return new_s
 
@@ -792,7 +796,7 @@ def find_str_wvi_full_match(s, l):
     return None
 
 
-def tokens_full_match(token_list, words):
+def tokens_full_match(token_list, words, order):
     """
     函数：如果words中有word出现在token_list中，则对word对应的token进行聚合
     参数：
@@ -811,13 +815,13 @@ def tokens_full_match(token_list, words):
     return new_list
 
 
-def full_match_agg(token_list, table, table_words, conds_value, split):
+def full_match_agg(token_list, table, table_words, conds_value, split, order=0):
     # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
     new_list = token_list
     if split == 'train':
-        new_list = tokens_full_match(new_list, conds_value)
+        new_list = tokens_full_match(new_list, conds_value, order)
     else:
-        new_list = tokens_full_match(new_list, table_words)
+        new_list = tokens_full_match(new_list, table_words, order)
     return new_list
 
 
@@ -833,7 +837,7 @@ def left_tokens_match(token_list, words, ix, word, candidate_list=None):
     for end_ix in range(ix, token_list_len):
         # 如果碰到`和`字，或者碰到已经token过的词，则停止匹配
         # if end_ix > ix and (new_list[end_ix] == '和' or new_list[end_ix] in words):
-        if end_ix > ix and (new_list[end_ix] == '和'):
+        if end_ix > ix and (new_list[end_ix] == '和' or new_list[end_ix] == '，' or new_list[end_ix] == '还有'):
             break
         # 如果碰到两个字及以上的词，并且其对应的候选词列表长度为1，并且和正在匹配的word不同，则终止匹配
         if end_ix > ix and candidate_list != None and len(candidate_list[end_ix]) == 1:
@@ -853,10 +857,19 @@ def get_best_match(token_list, words, ix, tmp_list, candidate_list):
     # tmp_list: 表示需要从ix位置开始匹配的候选词集
     # candidate_list: 表示每个长度大于2的token对应的候选词集
     total_max_ratio, total_max_word, total_max_end_ix = 0, None, -1
+    dup_ratio, dup_end_ix = 0, -1
     for word in tmp_list:
         max_ratio, end_index = left_tokens_match(token_list, words, ix, word, candidate_list)
+        # 航空 同时匹配到 南方航空，深圳航空，则忽略这种匹配
+        if max_ratio == total_max_ratio and end_index == total_max_end_ix and max_ratio < 0.7:
+            dup_ratio, dup_end_ix = max_ratio, end_index
+        if max_ratio == total_max_ratio and end_index == total_max_end_ix and word.endswith(token_list[ix]) and max_ratio < 0.8:
+            dup_ratio, dup_end_ix = max_ratio, end_index
         if max_ratio > total_max_ratio:
             total_max_ratio, total_max_word, total_max_end_ix = max_ratio, word, end_index
+        
+    if total_max_ratio == dup_ratio and total_max_end_ix == dup_end_ix:
+        return None, 0, -1
     return total_max_word, total_max_ratio, total_max_end_ix
 
 
@@ -867,8 +880,15 @@ def _contain_chinese(s):
             return True
     return False
 
+def _contain_non_digit(s):
+    if not s: return False
+    for uchar in s:
+        if uchar not in '0123456789.':
+            return True
+    return False
 
-def _qualify(words, token):
+
+def _qualify(words, token, order):
     """
     函数：对token进行检查，是否符合进行模糊匹配的条件
     """
@@ -877,6 +897,8 @@ def _qualify(words, token):
         # 如果这个全部是数字并且很可能是年份，则我们假设可以进行匹配
         if str.isdigit(token) and 1970 <= int(token) <= 2050: pass
         elif _contain_chinese(token): pass
+        elif _contain_non_digit(token): pass
+        # elif order==0 and token[0] == '0': pass     # 如果是第一轮处理，遇到首个0，则进行匹配
         else: return False    # 不对数字进行处理
     # 先不用这个条件
     # if token in words: return False     # 如果是words中的元素，则不需要再部分匹配
@@ -884,6 +906,9 @@ def _qualify(words, token):
 
 
 def search_list_filter(new_list, ix, candidate_set):
+    """
+    函数: 如果ix位置的token在候选列表，延迟匹配(不立刻进行匹配)，而是往后看，找到一个最优的匹配
+    """
     # 如果有多个，则进行最优匹配
     # 如token='英语', next_token='补习' ss = {'英语','英语补习','英语补习班'}, 则匹配以最长匹配为准，匹配为 英语补习
     # 如token='英语', next_token='课' ss = {'英语','英语补习','英语补习班'}, 则匹配为 英语
@@ -915,7 +940,7 @@ def search_list_filter(new_list, ix, candidate_set):
     return candidate_set
 
 
-def tokens_part_match_1th(token_list, words, other_words):
+def tokens_part_match_1th(token_list, words, other_words, order):
     """
     函数：第一轮处理，以token和word第一个字符相等为触发条件往后进行匹配，选择相似度最大的
     """
@@ -927,7 +952,7 @@ def tokens_part_match_1th(token_list, words, other_words):
     # 以token第一个字符和候选词的第一个字符相等为触发条件，进行后续token的匹配
     for ix, token in enumerate(new_list):
         # 如果不符合条件，则继续下一个
-        if not _qualify(words, token): continue
+        if not _qualify(words, token, order): continue
 
         tmp_set = set()
         if token[0] in '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIGKLMNOPQRSTUVWXYZ':
@@ -940,12 +965,13 @@ def tokens_part_match_1th(token_list, words, other_words):
         tmp_set = search_list_filter(new_list, ix, tmp_set)
         tmp_list = list(tmp_set)
         max_word, max_ratio, max_end_ix = get_best_match(new_list, words, ix, tmp_list, candidate_list)
-        # if ix < token_list_len-1 and new_list[ix] == '10' and new_list[ix+1] == 'kg':
-        #     print(new_list)
+        # if token == '河东':
+        #     print(token)
         #     print(tmp_set)
+        #     print(new_list)
         #     print(max_word, max_ratio, max_end_ix)
         # 阈值设定可能需要调整,范围大概是0.61~0.66
-        if max_ratio >= 0.65:
+        if max_ratio >= 0.63:
             new_list[ix] = max_word
             for t in range(ix+1, max_end_ix+1):
                 new_list[t] = ''  # 将这个设为''，因为已经被匹配了
@@ -956,7 +982,7 @@ def tokens_part_match_1th(token_list, words, other_words):
     return new_list
 
 
-def tokens_part_match_2th(token_list, words, other_words):
+def tokens_part_match_2th(token_list, words, other_words, order):
     """
     函数：第二轮处理，以word包含token为触发条件，往后进行匹配
     参数：
@@ -969,7 +995,7 @@ def tokens_part_match_2th(token_list, words, other_words):
     for ix, token in enumerate(new_list):
         tmp_token = token   # 由于后续可能需要对token进行处理，比如在token为单字的情况下，将token和后续的token进行连接操作进行判断
         # 如果不符合条件，则继续下一个
-        if not _qualify(words, tmp_token): continue
+        if not _qualify(words, tmp_token, order): continue
 
         # 如果token的长度为1，则加上后面的token一起匹配，如 红/楼/梦
         if len(token) == 1:
@@ -986,14 +1012,23 @@ def tokens_part_match_2th(token_list, words, other_words):
             if single_word not in words: continue
             end_ix = ix
             # ["江苏","省","农行","虹桥","支行","和","学府","路","支行"]
+            tmp_str = ''
             for t in range(ix+1, len(new_list)):
                 tmp_str = ''.join(new_list[ix:t+1])
                 if tmp_str not in single_word:
                     end_ix = t-1    # 回退一个
+                    tmp_str = ''.join(new_list[ix:end_ix+1])
                     break
-            new_list[ix] = single_word
-            for t in range(ix+1, end_ix+1):
-                new_list[t] = ''
+            if get_similarity(tmp_str, single_word) < 0.7 and single_word.endswith(tmp_token):
+                continue
+            # 当我们找到一个唯一的匹配时，还要加一个限制条件，即tmp_str和single_word差异太大时忽略改变
+            # 徐伟水泥制品厂 徐伟 0.5
+            # 可能需要针对train进行单独处理，毕竟train的val很少
+            similarity = get_similarity(tmp_str, single_word)
+            if (single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5:
+                new_list[ix] = single_word
+                for t in range(ix+1, end_ix+1):
+                    new_list[t] = ''
         # 如果当前词对应words中的不止一个词，即token出现在多个词中,能进行替换的词不止一个
         if len(tmp_set) > 1:
             # 搜索列表筛选, 将ss中不太可能是结果的给过滤掉
@@ -1025,7 +1060,7 @@ def get_candidate_list(token_list, words):
     return candidate_list
 
 
-def tokens_part_match(token_list, words, table=None, other_words=None):
+def tokens_part_match(token_list, words, table=None, other_words=None, order=0):
     """
     函数：对于没有进行完全匹配的token进行部分匹配
     """
@@ -1034,34 +1069,56 @@ def tokens_part_match(token_list, words, table=None, other_words=None):
     words = remove_null(words)
 
     # 第一轮匹配，以第一个字符相等为触发条件进行匹配
-    new_list = tokens_part_match_1th(new_list, words, other_words)
+    new_list = tokens_part_match_1th(new_list, words, other_words, order)
     # 第二轮匹配，以token出现在word中为触发条件进行匹配
-    new_list = tokens_part_match_2th(new_list, words, other_words)
+    new_list = tokens_part_match_2th(new_list, words, other_words, order)
 
     return new_list
     
 
 
-def part_match_agg(token_list, table, table_words, conds_value, split):
+def part_match_agg(token_list, table, table_words, conds_value, split, order):
     # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
     new_list = token_list
     if split == 'train':
-        new_list = tokens_part_match(new_list, conds_value, table=None, other_words=None)
+        new_list = tokens_part_match(new_list, conds_value, table=None, other_words=None, order=order)
     else:
-        new_list = tokens_part_match(new_list, table_words, table=table, other_words=None)
+        new_list = tokens_part_match(new_list, table_words, table=table, other_words=None, order=order)
     return new_list
 
 
-def _process_time(token_list):
-    new_list = token_list
-    # 对 12/年 这种模式进行补全
-    for ix, token in enumerate(new_list):
+def _process_time(token_list, table_words, conds_value):
+    new_list = []
+    words = table_words if table_words != None else conds_value
+    ix = -1
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+        # 对 12/年 这种模式进行补全
         if token == '年' and ix > 0:
-            last_token = new_list[ix-1]
+            last_token = token_list[ix-1]
             # 16/年；
             if len(last_token) == 2 and str.isdigit(last_token):
-                new_list[ix-1] = '20' + last_token    # 假设是20xx年，待定
+                new_list[-1] = '20' + last_token    # 假设是20xx年，待定
                 continue
+        if token not in words:
+            # 一六年；一二年
+            tmp_dic = zh_digit_dic
+            if len(token) == 3 and token[-1] == '年' and token[0] in tmp_dic and token[1] in tmp_dic:
+                s_value = tmp_dic[token[0]] + tmp_dic[token[1]]
+                pre_tmp_str = '20' if int(s_value) <= 70 else '19'
+                tmp_str = pre_tmp_str + s_value
+                new_list.append(tmp_str)
+                new_list.append('年')
+                continue
+            # 八月
+            if len(token) > 1 and token[-1] == '月':
+                val = get_numberical_value(token[:-1])
+                if val != None:
+                    new_list.append(val)
+                    new_list.append('月')
+                    continue
+        new_list.append(token)
     return new_list
 
 
@@ -1087,22 +1144,30 @@ def _process_digit(token_list, table_words, conds_value):
         ix += 1
         token = token_list[ix]
         if token not in words:
-            if token == '亿':
-                new_list.append('0000')
-                new_list.append('0000')
-                continue
+            # if token == '亿':
+            #     new_list.append('0000')
+            #     new_list.append('0000')
+            #     continue
             if token == '万':
                 new_list.append('0000')
                 continue
             if token == '百万':
                 new_list.append('00')
-                new_list.append('0000')
+                new_list.append('万')
                 continue
             if token == '千万':
                 new_list.append('000')
-                new_list.append('0000')
+                new_list.append('万')
                 continue
-            if token[0] in '0123456789.-零一二三四五六七八九十百千万亿点两负千万百亿':
+            # 处理带有 亿 的数字
+            # 对于 1/亿 这种不进行处理
+            if len(token) > 1 and token[-1] == '亿':
+                val = get_numberical_value(token[:-1])
+                if val != None:
+                    new_list.append(val)
+                    new_list.append('亿')
+                    continue
+            if token[0] in '0123456789.-零一二三四五六七八九十百千万点两负千万百':
                 val = get_numberical_value(token_list[ix])
                 if val != None:
                     new_list.extend(_digit_split(val))
@@ -1123,7 +1188,7 @@ def _process_digit(token_list, table_words, conds_value):
 
 def special_patten_agg(token_list, table_words, conds_value):
     new_list = token_list
-    new_list = _process_time(new_list)
+    new_list = _process_time(new_list, table_words, conds_value)
 
     new_list = _process_digit(new_list, table_words, conds_value)
 
@@ -1195,15 +1260,15 @@ def annotate_example_nlpir(example, table, split):
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
-    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
     # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理\
-    processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
+    processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
 
     ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？
     processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
 
-    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
-    processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split)
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
+    processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
 
     processed_nlu_token_list = post_process(processed_nlu_token_list)
 

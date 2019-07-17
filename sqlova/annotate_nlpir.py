@@ -1025,7 +1025,8 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             # 徐伟水泥制品厂 徐伟 0.5
             # 可能需要针对train进行单独处理，毕竟train的val很少
             similarity = get_similarity(tmp_str, single_word)
-            if (single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5:
+            if (len(words) > 3 and ((single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5)) \
+                or (len(words) <= 3 and similarity > 0.4):
                 new_list[ix] = single_word
                 for t in range(ix+1, end_ix+1):
                     new_list[t] = ''

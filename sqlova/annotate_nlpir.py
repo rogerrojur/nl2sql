@@ -758,7 +758,7 @@ def is_punctuation_en(uchar):
     return uchar in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
 
 def is_punctuation_ch(uchar):
-    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ'
+    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ¥'
 
 
 def replace_words(s):
@@ -1175,7 +1175,7 @@ def _process_digit(token_list, table_words, conds_value):
                     new_list.append(val)
                     new_list.append('亿')
                     continue
-            if token[0] in '0123456789.-零一二三四五六七八九十百千万点两负千万百':
+            if token[0] in '0123456789.-零一二三四五六七八九十百千万两负千万百':
                 val = get_numberical_value(token_list[ix])
                 if val != None:
                     new_list.extend(_digit_split(val))
@@ -1221,6 +1221,65 @@ def table_words_filter(table_words):
     return set(tmp_list)
 
 
+def post_process_for_train(record, wv_list, split):
+    if split != 'train' or record['wvi_corenlp'] == None:
+        return record
+    question_tok = record['question_tok']
+    for i, cond in enumerate(record['sql']['conds']):
+        wvi = record['wvi_corenlp'][i]
+        pred_val = ''.join(question_tok[wvi[0]: wvi[1]+1])
+        if cond[2] == pred_val and wvi[1] - wvi[0] <= 1:
+            pass
+        else:
+            question_tok[wvi[0]] = cond[2]
+            for tx in range(wvi[0]+1, wvi[1]+1):
+                question_tok[tx] = ''
+
+    question_tok = remove_null(question_tok)
+    record['question_tok'] = question_tok
+    # 重新确定wv的位置
+    try:
+        wvi1_corenlp, state = check_wv_in_nlu_tok(wv_list, question_tok)
+        record['wvi_corenlp'] = wvi1_corenlp
+        record['stage'] = state
+    except:
+        record['wvi_corenlp'] = None
+        record['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
+    return record
+
+
+def get_row_in_table(cond, rows):
+    """
+    函数: 对于每个wv，获取位置列表(row number, column number)
+    参数:
+        cond: [col, op, wv]
+    """
+    res = []
+    for ir, row in enumerate(rows):
+        row_val = rows[ir][cond[0]]
+        elem = str(row_val)
+        try:
+            if eval(elem) == eval(cond[2]):
+                res.append(ir)
+        except:
+            if elem == cond[2]:
+                res.append(ir)
+
+    return res
+
+
+def check_wv_in_table(table, conds, split):
+    """对每个cond，将其在table中的位置(行1, 行2)放到一个列表"""
+    if split == 'test':
+        return None
+
+    wv_pos = []
+    for cond in conds:
+        wv_row_list = get_row_in_table(cond, table['rows'])
+        wv_pos.append(wv_row_list)  # 如果没有返回空列表
+    return wv_pos
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -1263,7 +1322,8 @@ def annotate_example_nlpir(example, table, split):
 
     # 获取table中的words
     table_words = set([str(w) for row in table['rows'] for w in row])
-    table_words = table_words_filter(table_words)
+    # 对table中的词进行过滤
+    # table_words = table_words_filter(table_words)   
     table_words = sorted([w for w in table_words if len(w) < 50], key=lambda x : -len(x))   # 从长到短排序
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
@@ -1273,18 +1333,14 @@ def annotate_example_nlpir(example, table, split):
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
 
     ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？
+    # 主要处理 时间(年份，月份)，数字(亿，万)
     processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
 
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
 
-    processed_nlu_token_list = post_process(processed_nlu_token_list)
-
-    # 改变question进行token后的内容，以提升完全匹配的准确率
-    # processed_nlu_token_list = pre_with_change_process(processed_nlu_token_list)
-
-    # 对上一步进行操作的列表进行再操作，因为可能会出现冲突问题，如钱的问题，不是按照先后顺序处理的，如十二/块/五
-    # processed_nlu_token_list = post_with_change_process(processed_nlu_token_list)
+    # 后处理
+    # processed_nlu_token_list = post_process(processed_nlu_token_list)
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
@@ -1332,6 +1388,13 @@ def annotate_example_nlpir(example, table, split):
     except:
         ann['wvi_corenlp'] = None
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
+
+    # 对于没有完全匹配的数据，进一步处理，将wv值替换到wvi的指定位置。
+    ann = post_process_for_train(ann, wv_ann1, split)
+
+    # 增加一个属性，对每个wv，将其在table中的位置(行1, 行2)放到一个列表
+    wv_pos = check_wv_in_table(table, ann['sql']['conds'], split)
+    ann['wv_pos'] = wv_pos
 
     return ann
 

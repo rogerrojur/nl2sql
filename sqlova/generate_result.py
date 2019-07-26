@@ -17,7 +17,7 @@ from bert.modeling import BertConfig
 import numpy as np
 import os, argparse
 
-from matplotlib.pylab import *
+# from matplotlib.pylab import *
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
@@ -31,6 +31,8 @@ from pytorch_pretrained_bert import BertModel, BertTokenizer
 from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
+
+import token_utils
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -214,8 +216,16 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
 
     engine = DBEngine(os.path.join(path_db, f"{dset_name}.db"))
     results = []
-    for iB, t in enumerate(data_loader):
+    for iB, records in enumerate(data_loader):
         #print('iB: ', iB)#to locate the error
+
+        # Invoke the token_test_each() function, which transfer each record in test to record_tok
+        # print(record)
+        # # print(data_table)
+        # print(record['table_id'])
+        t = []
+        for record in records:
+            t.append(token_utils.token_test_each(record, data_table))
        
         # Get fields
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True, generate_mode=True)

@@ -52,6 +52,8 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
         print('Augmented data is loaded!')
 
     path_sql = os.path.join(path_wikisql, mode+'_tok.json')
+    if mode == 'test':
+        path_sql = os.path.join(path_wikisql, mode+'.json')
     if no_hs_tok:
         path_table = os.path.join(path_wikisql, mode + '.tables.json')
     else:

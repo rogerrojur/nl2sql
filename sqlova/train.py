@@ -25,6 +25,8 @@ from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
 
+import token_utils
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ################################################################
@@ -53,6 +55,9 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 # logger.info('this is info message')
+
+# disable the logging
+logging.disable(logging.DEBUG)
 ################################################################
 
 def construct_hyper_param(parser):
@@ -288,55 +293,54 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
         print('hs_t: ', hs_t)
         print('hds: ', hds)
         '''
-        g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_wrcn, wvi_change_index = get_g(sql_i)#get the where values
-        '''
-        print('g_sn: ', g_sn)
-        print('g_sc: ', g_sc)
-        print('g_sa: ', g_sa)
-        print('g_wn: ', g_wn)
-        print('g_wr: ', g_wr)
-        print('g_dwn: ', g_dwn)
-        print('g_wc: ', g_wc)
-        print('g_wo: ', g_wo)
-        print('g_wv: ', g_wv)
-        print('g_wrcn: ', g_wrcn)
-        '''
-        
-        #g_sn: (a list of double) number of select column;
-        #g_sc: (a list of list) select column names;
-        #g_sa: (a list of list) agg for each col;
-        #g_wr: (a list of double) if value=0, then there is only one condition, else there are two conditions;
-        #g_wc: (a list of list) where col;
-        #g_wo: (a list of list) where op;
-        #g_wv: (a list of list) where val;
-        # get ground truth where-value index under CoreNLP tokenization scheme. It's done already on trainset.
-        g_wvi_corenlp = get_g_wvi_corenlp(t, wvi_change_index)
-        # this function is to get the indices of where values from the question token
-
-        wemb_n, wemb_h, l_n, l_hpu, l_hs, \
-        nlu_tt, t_to_tt_idx, tt_to_t_idx, wemb_v, l_npu, l_token \
-            = get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length,
-                            num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers, num_out_layers_v=num_target_layers)
-        '''
-        print('wemb_n: ', torch.tensor(wemb_n).size())
-        print('wemb_h: ', torch.tensor(wemb_h).size())
-        '''
-        #print('l_n: ', l_n[0])
-        #print('l_hpu: ', l_hpu)
-        #print('l_hs: ', l_hs)
-        #print('nlu_tt: ', nlu_tt[0])
-        
-        #print('t_to_tt_idx: ', t_to_tt_idx)
-        #print('tt_to_t_idx: ', tt_to_t_idx)
-        #print('g_wvi_corenlp', g_wvi_corenlp)
-        
-        # wemb_n: natural language embedding
-        # wemb_h: header embedding
-        # l_n: token lengths of each question
-        # l_hpu: header token lengths
-        # l_hs: the number of columns (headers) of the tables.
         try:
-            #
+            g_sn, g_sc, g_sa, g_wn, g_wr, g_dwn, g_wc, g_wo, g_wv, g_wrcn, wvi_change_index = get_g(sql_i)#get the where values
+            '''
+            print('g_sn: ', g_sn)
+            print('g_sc: ', g_sc)
+            print('g_sa: ', g_sa)
+            print('g_wn: ', g_wn)
+            print('g_wr: ', g_wr)
+            print('g_dwn: ', g_dwn)
+            print('g_wc: ', g_wc)
+            print('g_wo: ', g_wo)
+            print('g_wv: ', g_wv)
+            print('g_wrcn: ', g_wrcn)
+            '''
+            
+            #g_sn: (a list of double) number of select column;
+            #g_sc: (a list of list) select column names;
+            #g_sa: (a list of list) agg for each col;
+            #g_wr: (a list of double) if value=0, then there is only one condition, else there are two conditions;
+            #g_wc: (a list of list) where col;
+            #g_wo: (a list of list) where op;
+            #g_wv: (a list of list) where val;
+            # get ground truth where-value index under CoreNLP tokenization scheme. It's done already on trainset.
+            g_wvi_corenlp = get_g_wvi_corenlp(t, wvi_change_index)
+            # this function is to get the indices of where values from the question token
+
+            wemb_n, wemb_h, l_n, l_hpu, l_hs, \
+            nlu_tt, t_to_tt_idx, tt_to_t_idx, wemb_v, l_npu, l_token \
+                = get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length,
+                                num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers, num_out_layers_v=num_target_layers)
+            '''
+            print('wemb_n: ', torch.tensor(wemb_n).size())
+            print('wemb_h: ', torch.tensor(wemb_h).size())
+            '''
+            #print('l_n: ', l_n[0])
+            #print('l_hpu: ', l_hpu)
+            #print('l_hs: ', l_hs)
+            #print('nlu_tt: ', nlu_tt[0])
+            
+            #print('t_to_tt_idx: ', t_to_tt_idx)
+            #print('tt_to_t_idx: ', tt_to_t_idx)
+            #print('g_wvi_corenlp', g_wvi_corenlp)
+            
+            # wemb_n: natural language embedding
+            # wemb_h: header embedding
+            # l_n: token lengths of each question
+            # l_hpu: header token lengths
+            # l_hs: the number of columns (headers) of the tables.
             g_wvi = get_g_wvi_bert_from_g_wvi_corenlp(t_to_tt_idx, g_wvi_corenlp)#if not exist, it will not train not include the length, so the end value is the start index of this word, not the end index of this word, so it need to add sth
             g_wvi = g_wvi_corenlp
             if g_wvi:
@@ -757,6 +761,9 @@ if __name__ == '__main__':
     BERT_PT_PATH = path_wikisql
 
     path_save_for_evaluation = './'
+
+    token_utils.token_train_val(base_path=path_wikisql)
+    print('tokening over...\ntraining...')
 
     ## 3. Load data
     train_data, train_table, dev_data, dev_table, train_loader, dev_loader = get_data(path_wikisql, args)

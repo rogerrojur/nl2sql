@@ -1453,41 +1453,28 @@ def data_broaden(ann):
     return new_ann_list
 
 
-if __name__ == '__main__':
-    parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--din', default='./wikisql/data/tianchi/', help='data directory')
-    parser.add_argument('--dout', default='./wikisql/data/tianchi/', help='output directory')
-    parser.add_argument('--split', default='train,val,test', help='comma=separated list of splits to process')
-    args = parser.parse_args()
-
-    answer_toy = not True
-    toy_size = 10
-
-    if not os.path.isdir(args.dout):
-        os.makedirs(args.dout)
-
-    # 加载缩写词对应的词典,对token进行替换
-    # annotate_dic = {}
-    # with open('annotate_dic.txt', encoding='utf8') as fin:
-    #     for line in fin:
-    #         # 字典扩容，合并
-    #         annotate_dic.update(json.loads(line))
-
-    # 替换列表
-    # replace_dic = {}
-    # with open('replace_dic.txt', encoding='utf8') as fin:
-    #     for line in fin:
-    #         # 字典扩容，合并
-    #         replace_dic.update(json.loads(line))
+def get_mvl(example):
+    max_len = 0
+    if example['wvi_corenlp'] == None:
+        return -1
+    for wvi in example['wvi_corenlp']:
+        max_len = max(max_len, wvi[1] - wvi[0] + 1)
+    return max_len
 
 
-    # for split in ['train', 'val', 'test']:
-    for split in args.split.split(','):
-        fsplit = os.path.join(args.din, split) + '.json'
-        ftable = os.path.join(args.din, split) + '.tables.json'
-        fout = os.path.join(args.dout, split) + '_tok.json'
+# 定义接口函数
+def token_train_val(base_path='./wikisql/data/tianchi/'):
+    """
+    生成train和val的token文件
+    Parameters:
+        base_path: 基本路径
+    """
+    for split in ['train', 'val']:
+        fsplit = os.path.join(base_path, split) + '.json'
+        ftable = os.path.join(base_path, split) + '.tables.json'
+        fout = os.path.join(base_path, split) + '_tok.json'
 
-        print('annotating {}'.format(fsplit))
+        print('tokening {}'.format(fsplit))
         with open(fsplit, encoding='utf8') as fs, open(ftable, encoding='utf8') as ft, open(fout, 'wt', encoding='utf8') as fo:
             print('loading tables')
 
@@ -1498,9 +1485,9 @@ if __name__ == '__main__':
                 tables[d['id']] = d
             print('loading examples')
             n_written = 0
-            cnt = -1
+            mvl_bigger_2 = mvl_none = 0
+            cnt = 0
             for line in tqdm(fs, total=count_lines(fsplit)):
-                cnt += 1
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
                 a = annotate_example_nlpir(d, tables[d['table_id']], split)
@@ -1509,12 +1496,32 @@ if __name__ == '__main__':
                 # 如果数据为train，则对json语句进行数据增广，即数据进行扩展
                 # if split == 'train':
                 #     a_list = data_broaden(a)
+                cnt += 1
                 for t in a_list:
                     # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
+                    mvl = get_mvl(t)
+                    if mvl > 2 and split == 'train':
+                        mvl_bigger_2 += 1
+                        continue
+                    if mvl == -1 and split == 'train':
+                        mvl_none += 1
+                        continue
                     fo.write(json.dumps(t, ensure_ascii=False) + '\n')
                     n_written += 1
-
-                if answer_toy:
-                    if cnt > toy_size:
-                        break
             print('wrote {} examples'.format(n_written))
+            print('drop %d(%.3f) examples where mvl > 2' % (mvl_bigger_2, mvl_bigger_2/cnt))
+            print('drop %d(%.3f) examples where mvl is None' % (mvl_none, mvl_none/cnt))
+
+
+def token_test_each(record, tables):
+    """
+    Generate the tokened record for each record in the test dataset.
+
+    Parameters:
+        record: a record in the test
+        tables: the tables for the test dataset
+
+    Return:
+        the tokened record for the input record
+    """
+    return annotate_example_nlpir(record, tables[record['table_id']], 'test')

@@ -15,11 +15,14 @@ import difflib
 
 import pynlpir as pr
 pr.open()
-
-import jieba
-# 北大的分词系统
 import pkuseg
 seg = pkuseg.pkuseg()
+
+import http.client
+import hashlib
+import urllib
+import random
+import json
 
 client = None
 
@@ -1323,7 +1326,7 @@ def annotate_example_nlpir(example, table, split):
     # 获取table中的words
     table_words = set([str(w) for row in table['rows'] for w in row])
     # 对table中的词进行过滤
-    # table_words = table_words_filter(table_words)   
+    table_words = table_words_filter(table_words)   
     table_words = sorted([w for w in table_words if len(w) < 50], key=lambda x : -len(x))   # 从长到短排序
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
@@ -1340,7 +1343,7 @@ def annotate_example_nlpir(example, table, split):
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
 
     # 后处理
-    # processed_nlu_token_list = post_process(processed_nlu_token_list)
+    processed_nlu_token_list = post_process(processed_nlu_token_list)
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
@@ -1462,6 +1465,67 @@ def get_mvl(example):
     return max_len
 
 
+def translate(q, httpClient, fromLang, toLang):
+    """
+    translate question q from one language to another language
+    Parameters:
+        q: question
+        httpClient: client
+        fromLang: source language
+        toLang: dest language
+    Return:
+        return the translated result of q in `toLang` language
+    """
+    if not q: 
+        return q
+    salt = random.randint(32768, 65536)
+    sign = appid+q+str(salt)+secretKey
+    sign = hashlib.md5(sign.encode(encoding='UTF-8')).hexdigest()
+
+    myurl = '/api/trans/vip/translate'
+    myurl = myurl+'?appid='+appid+'&q='+urllib.parse.quote(q)+'&from='+fromLang+'&to='+toLang+'&salt='+str(salt)+'&sign='+sign
+
+    res = {}
+    try:
+        httpClient.request('GET', myurl)
+     
+        #response是HTTPResponse对象
+        response = httpClient.getresponse().read()
+
+        res = json.loads(response.decode('utf-8'))
+    except Exception as e:
+        print(e)
+
+    if 'trans_result' in res:
+        return res['trans_result'][0]['dst']
+    return None
+
+
+appid = '20190727000321747' #你的appid
+secretKey = 'Xx4oRkPel9qANIpqh1kT' #你的密钥
+httpClient = None   # Initialize to None
+def trans(path='./wikisql/data/tianchi/'):
+    httpClient = http.client.HTTPConnection('api.fanyi.baidu.com')
+    fail_count = 0
+    cnt = 0
+    with open(os.path.join(path, 'test.json'), encoding='utf8') as fs, open(os.path.join(path, 'test_trans.json'), 'wt', encoding='utf8') as fo:
+        for line in fs:
+            example = json.loads(line)
+            example['trans'] = example['question'].strip()   # 去除首尾空格
+            example['trans'] = replace_words(example['trans'])    # 替换
+            example['trans'] = remove_special_char(example['trans'])  # 去除question中的特殊字符
+            example['trans'] = translate(translate(example['trans'], httpClient, 'zh', 'jp'), httpClient, 'jp', 'zh')
+            if not example['trans']:
+                fail_count += 1
+            if cnt > 30:
+                break
+            cnt += 1
+            fo.write(json.dumps(example, ensure_ascii=False) + '\n')
+        print('%d of %d fail.' % (fail_count, cnt))
+
+    httpClient.close()
+
+
 # 定义接口函数
 def token_train_val(base_path='./wikisql/data/tianchi/'):
     """
@@ -1469,7 +1533,8 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
     Parameters:
         base_path: 基本路径
     """
-    for split in ['train', 'val']:
+    # the tokened file of test is used to debug.
+    for split in ['train', 'val','test']:
         fsplit = os.path.join(base_path, split) + '.json'
         ftable = os.path.join(base_path, split) + '.tables.json'
         fout = os.path.join(base_path, split) + '_tok.json'
@@ -1499,11 +1564,12 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                 cnt += 1
                 for t in a_list:
                     # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
-                    mvl = get_mvl(t)
+                    if split != 'test':
+                        mvl = get_mvl(t)
                     if mvl > 2 and split == 'train':
                         mvl_bigger_2 += 1
                         continue
-                    if mvl == -1 and split == 'train':
+                    if mvl == -1 and (split == 'train' or split == 'val'):
                         mvl_none += 1
                         continue
                     fo.write(json.dumps(t, ensure_ascii=False) + '\n')

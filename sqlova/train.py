@@ -4,7 +4,7 @@
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400
+#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode val --token 0
 from pytorch_pretrained_bert import BertModel, BertTokenizer
 
 import numpy as np
@@ -64,8 +64,10 @@ def construct_hyper_param(parser):
     parser.add_argument('--tepoch', default=200, type=int)
     parser.add_argument("--bS", default=32, type=int,
                         help="Batch size")
-    parser.add_argument("--user", default=0, type=int,
-                        help="0: luokai, 1: jinhao, 2: liuchao")
+    parser.add_argument("--token", default=1, type=int,
+                        help="0: token, 1: no token")
+    parser.add_argument("--mode", default='train', type=str,
+                        help="train or val mode to be used.")
     parser.add_argument("--accumulate_gradients", default=1, type=int,
                         help="The number of accumulation of backpropagation to effectivly increase the batch size.")
     parser.add_argument('--fine_tune',
@@ -587,6 +589,8 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     cnt_lx = 0
     cnt_x = 0
 
+    cnt_hrpc = 0
+
     cnt_list = []
 
     engine = DBEngine(os.path.join(path_db, f"{dset_name}.db"))
@@ -694,6 +698,13 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
 
         # stat
         ave_loss += loss.item()
+
+        cnt_hrpc1_list = []
+        for b in range(len(g_wrcn)):
+            if (g_wrcn[b][0] == -1 and pr_hrpc[b] == 0) or (g_wrcn[b][0] != -1 and pr_hrpc[b] != 0):
+                cnt_hrpc1_list.append(1)
+            else:
+                cnt_hrpc1_list.append(0)
         
         #print('loss: ', ave_loss / cnt)
 
@@ -709,6 +720,8 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         cnt_wvi += sum(cnt_wvi1_list)
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
+
+        cnt_hrpc += sum(cnt_hrpc1_list)     # The count of hrpc
 
         current_cnt = [cnt_tot, cnt, cnt_sn, cnt_sc, cnt_sa, cnt_wn, cnt_wr, cnt_wc, cnt_wo, cnt_wv, cnt_wvi, cnt_lx, cnt_x]
         cnt_list1 = [cnt_sn1_list, cnt_sc1_list, cnt_sa1_list, cnt_wn1_list, cnt_wr1_list, cnt_wc1_list, cnt_wo1_list, cnt_wv1_list, cnt_lx1_list,
@@ -734,17 +747,24 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     acc_lx = cnt_lx / cnt
     acc_x = cnt_x / cnt
 
-    acc = [ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x]
+    # the accuracy of having repeated columns, need to be printed
+    acc_hrpc = cnt_hrpc / cnt
+
+    acc = [ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x, acc_hrpc]
     return acc, results, cnt_list
 
 
 def print_result(epoch, acc, dname):
-    ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x = acc
+    acc_hrpc = -1
+    if len(acc) == 12:
+        ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x = acc
+    else:
+        ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x, acc_hrpc = acc
 
     print(f'{dname} results ------------')
     print(
         f" Epoch: {epoch}, ave loss: {ave_loss}, acc_sn: {acc_sn:.3f}, acc_sc: {acc_sc:.3f}, acc_sa: {acc_sa:.3f}, acc_wn: {acc_wn:.3f}, \
-        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}"
+        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}, acc_hrpc: {acc_hrpc:.3f}"
     )
 
 if __name__ == '__main__':
@@ -754,16 +774,20 @@ if __name__ == '__main__':
     args = construct_hyper_param(parser)
 
     ## 2. Paths
-    path_h = 'D:\\tianChi\\nl2sql\\sqlova\\wikisql'
-    if args.user == 1:
-        path_h = './wikisql'
+    path_h = './wikisql'
     path_wikisql = os.path.join(path_h, 'data', 'tianchi')
     BERT_PT_PATH = path_wikisql
 
     path_save_for_evaluation = './'
 
-    token_utils.token_train_val(base_path=path_wikisql)
-    print('tokening over...\ntraining...')
+    if args.token == 1:
+        token_utils.token_train_val(base_path=path_wikisql)
+        print('tokening over...\ntraining...')
+    elif args.token == 0:
+        print('args.token == 1, token skipped.')
+    else:
+        print('do nothing other than tokening.')
+        sys.exit(0)
 
     ## 3. Load data
     train_data, train_table, dev_data, dev_table, train_loader, dev_loader = get_data(path_wikisql, args)
@@ -796,26 +820,70 @@ if __name__ == '__main__':
     ## 6. Train
     acc_lx_t_best = -1
     epoch_best = -1
-    for epoch in range(args.tepoch):
-        # train
-        
-        acc_train, aux_out_train = train(train_loader,
-                                         train_table,
-                                         model,
-                                         model_bert,
-                                         opt,
-                                         bert_config,
-                                         tokenizer,
-                                         args.max_seq_length,
-                                         args.num_target_layers,
-                                         args.accumulate_gradients,
-                                         opt_bert=opt_bert,
-                                         st_pos=0,
-                                         path_db=path_wikisql,
-                                         dset_name='train',
-                                         mvl=2)
-        
+
+    train_mode = args.mode
+    if train_mode == 'train':
+        for epoch in range(args.tepoch):
+            # train
+            
+            acc_train, aux_out_train = train(train_loader,
+                                             train_table,
+                                             model,
+                                             model_bert,
+                                             opt,
+                                             bert_config,
+                                             tokenizer,
+                                             args.max_seq_length,
+                                             args.num_target_layers,
+                                             args.accumulate_gradients,
+                                             opt_bert=opt_bert,
+                                             st_pos=0,
+                                             path_db=path_wikisql,
+                                             dset_name='train',
+                                             mvl=2)
+            
+            # check DEV
+            with torch.no_grad():
+                acc_dev, results_dev, cnt_list = test(dev_loader,
+                                                    dev_table,
+                                                    model,
+                                                    model_bert,
+                                                    bert_config,
+                                                    tokenizer,
+                                                    args.max_seq_length,
+                                                    args.num_target_layers,
+                                                    detail=False,
+                                                    path_db=path_wikisql,
+                                                    st_pos=0,
+                                                    dset_name='val', EG=args.EG,
+                                                    mvl=2)
+
+
+            print_result(epoch, acc_train, 'train')
+            print_result(epoch, acc_dev, 'val')
+
+            # save results for the official evaluation
+            save_for_evaluation(path_save_for_evaluation, results_dev, 'val')
+
+
+
+            # save best model
+            # Based on Dev Set logical accuracy lx
+            acc_lx_t = acc_dev[-2]
+            if acc_lx_t > acc_lx_t_best:
+                acc_lx_t_best = acc_lx_t
+                epoch_best = epoch
+                # save best model
+                state = {'model': model.state_dict()}
+                torch.save(state, os.path.join('.', 'model_best.pt') )
+
+                state = {'model_bert': model_bert.state_dict()}
+                torch.save(state, os.path.join('.', 'model_bert_best.pt'))
+
+            print(f" Best Val lx acc: {acc_lx_t_best} at epoch: {epoch_best}")
+    else:
         # check DEV
+        epoch = -1
         with torch.no_grad():
             acc_dev, results_dev, cnt_list = test(dev_loader,
                                                 dev_table,
@@ -830,9 +898,6 @@ if __name__ == '__main__':
                                                 st_pos=0,
                                                 dset_name='val', EG=args.EG,
                                                 mvl=2)
-
-
-        print_result(epoch, acc_train, 'train')
         print_result(epoch, acc_dev, 'val')
 
         # save results for the official evaluation
@@ -846,12 +911,5 @@ if __name__ == '__main__':
         if acc_lx_t > acc_lx_t_best:
             acc_lx_t_best = acc_lx_t
             epoch_best = epoch
-            # save best model
-            state = {'model': model.state_dict()}
-            torch.save(state, os.path.join('.', 'model_best.pt') )
-
-            state = {'model_bert': model_bert.state_dict()}
-            torch.save(state, os.path.join('.', 'model_bert_best.pt'))
 
         print(f" Best Val lx acc: {acc_lx_t_best} at epoch: {epoch_best}")
-        

@@ -10,6 +10,7 @@ from matplotlib.pylab import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import defaultdict
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -24,7 +25,8 @@ class Seq2SQL_v1(nn.Module):
         self.hS = hS
         self.ls = lS
         self.dr = dr
-
+        
+        self.max_sn = 3
         self.max_wn = 4
         self.n_cond_ops = n_cond_ops
         self.n_agg_ops = n_agg_ops
@@ -136,6 +138,7 @@ class Seq2SQL_v1(nn.Module):
             pr_wvi1 = [[e[0] for e in l] for l in g_wvi]
         else:
             pr_wvi1 = pred_wvi1(pr_wn, s_wv1)
+            #pr_wvi1 = pred_wvi1_hrpc(pr_wn, s_wv1, pr_hrpc, pr_wr, l_hs)
         
         s_wv2 = self.wvp2(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi1=pr_wvi1, mvl=mvl, show_p_wv=show_p_wv)#it represent 长度-1 the g_wvi will convert to [start_index, length-1]
         
@@ -145,6 +148,7 @@ class Seq2SQL_v1(nn.Module):
             pr_wvi3 = [[e[0] + e[1] for e in l] for l in g_wvi]#end index
         else:
             pr_wvi3 = pred_wvi1(pr_wn, s_wv3)#it is the same prediction
+            #pr_wvi3 = pred_wvi1_hrpc(pr_wn, s_wv3, pr_hrpc, pr_wr, l_hs)
             
         s_wv4 = self.wvp4(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi3=pr_wvi3, mvl=mvl, show_p_wv=show_p_wv)
         
@@ -152,197 +156,268 @@ class Seq2SQL_v1(nn.Module):
 
         return s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4
 
-    def beam_forward(self, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, engine, tb,
-                     nlu_t, nlu_wp_t, wp_to_wh_index, nlu,
+    def beam_forward(self, normal_sql_i, mvl, wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wemb_v, l_npu, l_token, engine, tb,
+                     nlu_t,
                      beam_size=4,
-                     show_p_sc=False, show_p_sa=False,
-                     show_p_wn=False, show_p_wc=False, show_p_wo=False, show_p_wv=False):
+                     show_p_sn=False, show_p_sc=False, show_p_sa=False,
+                     show_p_wn=False, show_p_wr=False, show_p_hrpc=False, show_p_wc=False, show_p_wo=False, show_p_wv=False):
         """
         Execution-guided beam decoding.
         """
-        # sc
+        '''
+        s_sn = self.snp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_sn=show_p_sn)
+        
+        pr_sn = pred_sn(s_sn)
+        
         s_sc = self.scp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_sc=show_p_sc)
-        prob_sc = F.softmax(s_sc, dim=-1)
-        bS, mcL = s_sc.shape
-
-        # minimum_hs_length = min(l_hs)
-        # beam_size = minimum_hs_length if beam_size > minimum_hs_length else beam_size
-
-        # sa
-        # Construct all possible sc_sa_score
-        prob_sc_sa = torch.zeros([bS, beam_size, self.n_agg_ops]).to(device)
-        prob_sca = torch.zeros_like(prob_sc_sa).to(device)
-
-        # get the top-k indices.  pr_sc_beam = [B, beam_size]
-        pr_sc_beam = pred_sc_beam(s_sc, beam_size)
-
-        # calculate and predict s_sa.
-        for i_beam in range(beam_size):
-            pr_sc = list( array(pr_sc_beam)[:,i_beam] )
-            s_sa = self.sap(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, pr_sc, show_p_sa=show_p_sa)
-            prob_sa = F.softmax(s_sa, dim=-1)
-            prob_sc_sa[:, i_beam, :] = prob_sa
-
-            prob_sc_selected = prob_sc[range(bS), pr_sc] # [B]
-            prob_sca[:,i_beam,:] =  (prob_sa.t() * prob_sc_selected).t()
-            # [mcL, B] * [B] -> [mcL, B] (element-wise multiplication)
-            # [mcL, B] -> [B, mcL]
-
-        # Calculate the dimension of tensor
-        # tot_dim = len(prob_sca.shape)
-
-        # First flatten to 1-d
-        idxs = topk_multi_dim(torch.tensor(prob_sca), n_topk=beam_size, batch_exist=True)
-        # Now as sc_idx is already sorted, re-map them properly.
-
-        idxs = remap_sc_idx(idxs, pr_sc_beam) # [sc_beam_idx, sa_idx] -> [sc_idx, sa_idx]
-        idxs_arr = array(idxs)
-        # [B, beam_size, remainig dim]
-        # idxs[b][0] gives first probable [sc_idx, sa_idx] pairs.
-        # idxs[b][1] gives of second.
-
-        # Calculate prob_sca, a joint probability
-        beam_idx_sca = [0] * bS
-        beam_meet_the_final = [False] * bS
-        while True:
-            pr_sc = idxs_arr[range(bS),beam_idx_sca,0]
-            pr_sa = idxs_arr[range(bS),beam_idx_sca,1]
-
-            # map index properly
-
-            check = check_sc_sa_pairs(tb, pr_sc, pr_sa)
-
-            if sum(check) == bS:
-                break
-            else:
-                for b, check1 in enumerate(check):
-                    if not check1: # wrong pair
-                        beam_idx_sca[b] += 1
-                        if beam_idx_sca[b] >= beam_size:
-                            beam_meet_the_final[b] = True
-                            beam_idx_sca[b] -= 1
-                    else:
-                        beam_meet_the_final[b] = True
-
-            if sum(beam_meet_the_final) == bS:
-                break
-
-
-        # Now pr_sc, pr_sa are properly predicted.
-        pr_sc_best = list(pr_sc)
-        pr_sa_best = list(pr_sa)
-
-        # Now, Where-clause beam search.
+        
+        pr_sc = pred_sc(pr_sn, s_sc)
+        
+        s_sa = self.sap(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, pr_sn, pr_sc, show_p_sa=show_p_sa)
+        
+        pr_sa = pred_sa(pr_sn, s_sa)
+        '''
+        #pr_sc = guide_pred_sc(pr_sn, s_sc, pr_sa, tb)
+        
         s_wn = self.wnp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wn=show_p_wn)
-        prob_wn = F.softmax(s_wn, dim=-1).detach().to('cpu').numpy()
-
-        # Found "executable" most likely 4(=max_num_of_conditions) where-clauses.
-        # wc
+        
+        pr_wn = pred_wn(s_wn)
+        
+        s_wr = self.wrp(wemb_n, l_n, pr_wn, show_p_wr=show_p_wr)
+        
+        pr_wr = pred_wr(pr_wn, s_wr)
+        
+        s_hrpc = self.hrpc(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, pr_wr, show_p_hrpc=show_p_hrpc)
+        
+        pr_hrpc = pred_hrpc(s_hrpc)
+        
+        
+        #pr_wr = re_pred_wr(pr_wr, pr_hrpc)
+        
+        #pr_hrpc = re_pred_hrpc(pr_wr, pr_hrpc)
+        
+        pr_dwn = pred_dwn(pr_wn, pr_hrpc)
+        
         s_wc = self.wcp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wc=show_p_wc, penalty=True)
-        prob_wc = torch.sigmoid(s_wc).detach().to('cpu').numpy()
-        # pr_wc_sorted_by_prob = pred_wc_sorted_by_prob(s_wc)
+        
+        pr_wc = pred_wc(pr_dwn, s_wc, pr_wn, pr_hrpc)
+        
+        s_wo = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, show_p_wo=show_p_wo)
+        
+        pr_wo = pred_wo(pr_wn, s_wo)
+        
+        #pr_wc = guide_pred_wc(pr_sc, pr_hrpc, pr_wn, s_wc, pr_wo, tb)
+        
+        #s_wv1 = self.wvp1(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, show_p_wv=show_p_wv)
+        
+        #pr_wvi1 = guide_pred_wvi1(pr_wn, pr_wc, s_wv1, tb, nlu_t)
+        
+        #pr_wvi1 = pred_wvi1(pr_wn, s_wv1)
+        
+        #s_wv2 = self.wvp2(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi1=pr_wvi1, mvl=mvl, show_p_wv=show_p_wv)
+        
+        #s_wv3 = self.wvp3(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, show_p_wv=show_p_wv)
+        
+        #pr_wvi3 = guide_pred_wvi1(pr_wn, pr_wc, s_wv3, tb, nlu_t)
+        
+        #pr_wvi3 = pred_wvi1(pr_wn, s_wv3)
+        
+        #s_wv4 = self.wvp4(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn, wc=pr_wc, wo=pr_wo, wvi3=pr_wvi3, mvl=mvl, show_p_wv=show_p_wv)
+        
+        #pr_wvi_all = pred_wvi_se(pr_wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
+        
+        #pr_wc = guide_pred_wc(pr_hrpc, pr_wn, s_wc, pr_wo, tb, l_hs, pr_wvi_all, nlu_t, engine)
+        
+        bS = len(normal_sql_i)
+        
+        pr_sql_list = [{} for _ in range(bS)]#result
+        exe_error = 0
+        still_error = 0
+        for ib in range(bS):
+            cur_conds = normal_sql_i[ib]['conds']
+            not_repeated_conds = []
+            for cond in cur_conds:
+                if cond not in not_repeated_conds:
+                    not_repeated_conds.append(cond)
+            if len(cur_conds) != len(not_repeated_conds):
+                if len(not_repeated_conds) <= 1:
+                    normal_sql_i[ib]['cond_conn_op'] = 0
+                    normal_sql_i[ib]['conds'] = not_repeated_conds
+                    cur_conds = not_repeated_conds
+                else:
+                    normal_sql_i[ib]['conds'] = not_repeated_conds
+                    cur_conds = not_repeated_conds
+            cur_scas = [[e1, e2] for e1, e2 in zip(normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'])]
+            not_repeated_scas = []
+            for sca in cur_scas:
+                if sca not in not_repeated_scas:
+                    not_repeated_scas.append(sca)
+            if len(cur_scas) != len(not_repeated_scas):
+                new_sel = [e[0] for e in not_repeated_scas]
+                new_agg = [e[1] for e in not_repeated_scas]
+                normal_sql_i[ib]['sel'] = new_sel
+                normal_sql_i[ib]['agg'] = new_agg
+                cur_scas = not_repeated_scas
+            colss = [e[0] for e in cur_conds]
+            prob_list_h = argsort(-s_wc[ib].data.cpu().numpy()).tolist()
+            if len(list(set(colss))) != len(colss):
+                col_res, cnt_max, str_res, wvi_res = greedy_wvi_hrpc(l_hs[ib], tb[ib], engine, nlu_t[ib], mvl, colss[0], prob_list_h)
+                if col_res != colss[0]:
+                    if col_res == -1:#此时直接为wn=0
+                        #print('no')
+                        #do nothing
+                        pass
+                    if col_res != -1 and cnt_max == 1:
+                        #print('single')
+                        pr_wn1 = [1] * bS
+                        pr_wc1 = [[col_res for _1 in range(self.max_wn)] for _ in range(bS)]
+                        s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
+                        pr_wo1 = pred_wo(pr_wn1, s_wo1)
+                        normal_sql_i[ib]['cond_conn_op'] = 0
+                        normal_sql_i[ib]['conds'] = [[col_res, pr_wo1[ib][0], str_res[0]]]
+                    else:
+                        #print(cnt_max)
+                        correct_cnt_max = min(4, cnt_max)
+                        pr_wn1 = [correct_cnt_max] * bS
+                        pr_wc1 = [[col_res for _1 in range(self.max_wn)] for _ in range(bS)]
+                        s_wr1 = self.wrp(wemb_n, l_n, pr_wn1, show_p_wr=show_p_wr)
+                        pr_wr1 = pred_wr(pr_wn1, s_wr1)
+                        s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
+                        pr_wo1 = pred_wo(pr_wn1, s_wo1)
+                        conds_new = []
+                        for i, str_single in enumerate(str_res):
+                            if i >= correct_cnt_max:
+                                break
+                            conds_new.append([col_res, pr_wo1[ib][i], str_single])
+                        normal_sql_i[ib]['conds'] = conds_new
+                        normal_sql_i[ib]['cond_conn_op'] = pr_wr1[ib]
+            
+            if len(list(set(colss))) == len(colss):
+                skip_dict = defaultdict(set)
+                nb_of_conversion = 0
+                conversion_idxs = []
+                for i, cond in enumerate(cur_conds):
+                    if cond[1] != 2:
+                        continue
+                    if engine.check_wc_wv(tb[ib]['id'], cond[0], cond[2]):
+                        skip_dict[cond[0]].add(cond[2])
+                        continue
+                    else:
+                        nb_of_conversion += 1
+                        conversion_idxs.append(i)
+                #调用
+                if nb_of_conversion:
+                    conversion_elements = greedy_wvi_normal(l_hs[ib], tb[ib], engine, nlu_t[ib], mvl, skip_dict, prob_list_h)
+                    if len(conversion_elements) >= nb_of_conversion:
+                        #rest_of_ce = conversion_elements[nb_of_conversion:]
+                        #rest_of_ce = rest_of_ce[:self.max_wn - len(normal_sql_i[ib]['conds'])]
+                        for i, conversion_element in enumerate(conversion_elements[:nb_of_conversion]):
+                            normal_sql_i[ib]['conds'][conversion_idxs[i]] = conversion_element
+                        #normal_sql_i[ib]['conds'] += rest_of_ce
+                        myDict = defaultdict(int)
+                        for cond in normal_sql_i[ib]['conds']:
+                            myDict[cond[0]] += 1
+                        rpc = -1
+                        for key in myDict:
+                            if myDict[key] >= 2:
+                                rpc = key
+                                break
+                        if rpc != -1:
+                            #print(normal_sql_i[ib]['conds'])
+                            clean_conds = []
+                            for cond in normal_sql_i[ib]['conds']:
+                                if cond[0] == rpc:
+                                    clean_conds.append(cond)
+                            normal_sql_i[ib]['conds'] = clean_conds
+                            normal_sql_i[ib]['cond_conn_op'] = 2
+                    else:
+                        abandon_part = conversion_idxs[-(nb_of_conversion - len(conversion_elements)):]
+                        conversion_idxs = conversion_idxs[:len(conversion_elements)]
+                        for i, conversion_element in enumerate(conversion_elements):
+                            normal_sql_i[ib]['conds'][conversion_idxs[i]] = conversion_element
+                        change_conds = []
+                        for i, cond in enumerate(normal_sql_i[ib]['conds']):
+                            if i not in abandon_part:
+                                change_conds.append(cond)
+                        if change_conds:
+                            normal_sql_i[ib]['conds'] = change_conds
+                        
+                        myDict = defaultdict(int)
+                        for cond in normal_sql_i[ib]['conds']:
+                            myDict[cond[0]] += 1
+                        rpc = -1
+                        for key in myDict:
+                            if myDict[key] >= 2:
+                                rpc = key
+                                break
+                        if rpc != -1:
+                            #print(normal_sql_i[ib]['conds'])
+                            clean_conds = []
+                            for cond in normal_sql_i[ib]['conds']:
+                                if cond[0] == rpc:
+                                    clean_conds.append(cond)
+                            normal_sql_i[ib]['conds'] = clean_conds
+                            normal_sql_i[ib]['cond_conn_op'] = 2
+                            
+                        if len(normal_sql_i[ib]['conds']) <= 1:
+                            normal_sql_i[ib]['cond_conn_op'] = 0
+            
+            if engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], normal_sql_i[ib]['conds'], normal_sql_i[ib]['cond_conn_op']):
+                pr_sql_list[ib] = normal_sql_i[ib]
+                continue
+            
+            exe_error += 1
+            conds = normal_sql_i[ib]['conds']
+            rela = normal_sql_i[ib]['cond_conn_op']
+            new_conds = []
+            for i, cond in enumerate(conds):
+                if engine.check_wc_wv(tb[ib]['id'], cond[0], cond[2]):
+                    new_conds.append(cond)
+                else:
+                    ok = False
+                    prob_wc1 = s_wc[ib]
+                    rank_hs = argsort(-prob_wc1.data.cpu().numpy())
+                    if True:
+                        for col in rank_hs:
+                            if col >= l_hs[ib]:
+                                continue
+                            if engine.check_wc_wv(tb[ib]['id'], col, cond[2]):
+                                if tb[ib]['types'][col] == 'text':
+                                    new_conds.append([col, 2, cond[2]])
+                                else:
+                                    new_conds.append([col, cond[1], cond[2]])
+                                ok = True
+                                break
+                    if not ok and cond[1] <= 1 and tb[ib]['types'][cond[0]] == 'text':
+                        for col1 in rank_hs:
+                            if ok:
+                                break
+                            if col1 >= l_hs[ib]:
+                                continue
+                            if tb[ib]['types'][col1] == 'real':
+                                
+                                if not ok and check_is_digits(cond[2]):
+                                    new_conds.append([col1, cond[1], cond[2]])
+                                    ok = True
+                                    break
+                                
+                                for st in range(0, len(nlu_t[ib])):
+                                    if ok:
+                                        break
+                                    for ed in range(st, min(st + mvl, len(nlu_t[ib]))):
+                                        wv_str = single_wvi2str([st, ed], nlu_t[ib])
+                                        if engine.check_wc_wv(tb[ib]['id'], col1, wv_str):#wv 是否存在于 table
+                                            new_conds.append([col1, cond[1], wv_str])
+                                            ok = True
+                                            break
+                                
+                    if not ok:
+                        new_conds.append(cond)
+            pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
+            if not engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], new_conds, rela):
+                still_error += 1
+        return pr_sql_list, exe_error, still_error
 
-        # get max_wn # of most probable columns & their prob.
-        pr_wn_max = [self.max_wn]*bS
-        pr_wc_max = pred_wc(pr_wn_max, s_wc) # if some column do not have executable where-claouse, omit that column
-        prob_wc_max = zeros([bS, self.max_wn])
-        for b, pr_wc_max1 in enumerate(pr_wc_max):
-            prob_wc_max[b,:] = prob_wc[b,pr_wc_max1]
-
-        # get most probable max_wn where-clouses
-        # wo
-        s_wo_max = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn_max, wc=pr_wc_max, show_p_wo=show_p_wo)
-        prob_wo_max = F.softmax(s_wo_max, dim=-1).detach().to('cpu').numpy()
-        # [B, max_wn, n_cond_op]
-
-        pr_wvi_beam_op_list = []
-        prob_wvi_beam_op_list = []
-        for i_op  in range(self.n_cond_ops-1):
-            pr_wo_temp = [ [i_op]*self.max_wn ]*bS
-            # wv
-            s_wv = self.wvp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn_max, wc=pr_wc_max, wo=pr_wo_temp, show_p_wv=show_p_wv)
-            prob_wv = F.softmax(s_wv, dim=-2).detach().to('cpu').numpy()
-
-            # prob_wv
-            pr_wvi_beam, prob_wvi_beam = pred_wvi_se_beam(self.max_wn, s_wv, beam_size)
-            pr_wvi_beam_op_list.append(pr_wvi_beam)
-            prob_wvi_beam_op_list.append(prob_wvi_beam)
-            # pr_wvi_beam = [B, max_wn, k_logit**2 [st, ed] paris]
-
-            # pred_wv_beam
-
-        # Calculate joint probability of where-clause
-        # prob_w = [batch, wc, wo, wv] = [B, max_wn, n_cond_op, n_pairs]
-        n_wv_beam_pairs = prob_wvi_beam.shape[2]
-        prob_w = zeros([bS, self.max_wn, self.n_cond_ops-1, n_wv_beam_pairs])
-        for b in range(bS):
-            for i_wn in range(self.max_wn):
-                for i_op in range(self.n_cond_ops-1): # do not use final one
-                    for i_wv_beam in range(n_wv_beam_pairs):
-                        # i_wc = pr_wc_max[b][i_wn] # already done
-                        p_wc = prob_wc_max[b, i_wn]
-                        p_wo = prob_wo_max[b, i_wn, i_op]
-                        p_wv = prob_wvi_beam_op_list[i_op][b, i_wn, i_wv_beam]
-
-                        prob_w[b, i_wn, i_op, i_wv_beam] = p_wc * p_wo * p_wv
-
-        # Perform execution guided decoding
-        conds_max = []
-        prob_conds_max = []
-        # while len(conds_max) < self.max_wn:
-        idxs = topk_multi_dim(torch.tensor(prob_w), n_topk=beam_size, batch_exist=True)
-        # idxs = [B, i_wc_beam, i_op, i_wv_pairs]
-
-        # Construct conds1
-        for b, idxs1 in enumerate(idxs):
-            conds_max1 = []
-            prob_conds_max1 = []
-            for i_wn, idxs11 in enumerate(idxs1):
-                i_wc = pr_wc_max[b][idxs11[0]]
-                i_op = idxs11[1]
-                wvi = pr_wvi_beam_op_list[i_op][b][idxs11[0]][idxs11[2]]
-
-                # get wv_str
-                temp_pr_wv_str, _ = convert_pr_wvi_to_string([[wvi]], [nlu_t[b]], [nlu_wp_t[b]], [wp_to_wh_index[b]], [nlu[b]])
-                merged_wv11 = merge_wv_t1_eng(temp_pr_wv_str[0][0], nlu[b])
-                conds11 = [i_wc, i_op, merged_wv11]
-
-                prob_conds11 = prob_w[b, idxs11[0], idxs11[1], idxs11[2] ]
-
-                # test execution
-                # print(nlu[b])
-                # print(tb[b]['id'], tb[b]['types'], pr_sc[b], pr_sa[b], [conds11])
-                pr_ans = engine.execute(tb[b]['id'], pr_sc[b], pr_sa[b], [conds11])
-                if bool(pr_ans):
-                    # pr_ans is not empty!
-                    conds_max1.append(conds11)
-                    prob_conds_max1.append(prob_conds11)
-            conds_max.append(conds_max1)
-            prob_conds_max.append(prob_conds_max1)
-
-            # May need to do more exhuastive search?
-            # i.e. up to.. getting all executable cases.
-
-        # Calculate total probability to decide the number of where-clauses
-        pr_sql_i = []
-        prob_wn_w = []
-        pr_wn_based_on_prob = []
-
-        for b, prob_wn1 in enumerate(prob_wn):
-            max_executable_wn1 = len( conds_max[b] )
-            prob_wn_w1 = []
-            prob_wn_w1.append(prob_wn1[0])  # wn=0 case.
-            for i_wn in range(max_executable_wn1):
-                prob_wn_w11 = prob_wn1[i_wn+1] * prob_conds_max[b][i_wn]
-                prob_wn_w1.append(prob_wn_w11)
-            pr_wn_based_on_prob.append(argmax(prob_wn_w1))
-            prob_wn_w.append(prob_wn_w1)
-
-            pr_sql_i1 = {'agg': pr_sa_best[b], 'sel': pr_sc_best[b], 'conds': conds_max[b][:pr_wn_based_on_prob[b]]}
-            pr_sql_i.append(pr_sql_i1)
-        # s_wv = [B, max_wn, max_nlu_tokens, 2]
-        return prob_sca, prob_w, prob_wn_w, pr_sc_best, pr_sa_best, pr_wn_based_on_prob, pr_sql_i
-    
 class SNP(nn.Module):
     def __init__(self, iS=300, hS=100, lS=2, dr=0.3):
         super(SNP, self).__init__()
@@ -647,6 +722,7 @@ class SAP(nn.Module):
 
         vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob)], dim=2)
         s_sa = self.sa_out(vec)
+        #s_sa[:, :, 2:4] = -10000000000.0
         #s_sa = self.softmax_dim2(s_sa) # loss 可能有问题，这里没有把out of range的selected col mask掉
 
         return s_sa
@@ -766,6 +842,8 @@ class WNP(nn.Module):
             s_wn[b, l_hs1 + 1:] = -10000000000.0#reset the padding value as -inf include 0 so it need to plus 1
         
         #s_wn = self.softmax_dim1(s_wn) # [B, 1 + 4]
+        
+        s_wn[:, 0] = -10000000000.0
 
         return s_wn
 
@@ -833,7 +911,7 @@ class WRP(nn.Module):
 
         for b, wn1 in enumerate(pr_wn):
             if wn1 <= 1:
-                s_wr[b][1:] = -10000000000.0
+                s_wr[b][1:] = -20000000000.0
                 
         #s_wr = self.softmax_dim1(s_wr)
         
@@ -905,7 +983,7 @@ class HRPC(nn.Module):
         c_hs = torch.mul(wenc_hs, p_h.unsqueeze(2)).sum(1)
 
         #   [B, 100] --> [B, 2*100] Enlarge because there are two layers.
-        hidden = self.W_hidden(c_hs)  # [B, 4, 200/2]
+        hidden = self.W_hidden(c_hs)  # [B, 2 * 100]
         hidden = hidden.view(bS, self.lS * 2, int(
             self.hS / 2))  # [4, B, 100/2] # number_of_layer_layer * (bi-direction) # lstm input convention.
         hidden = hidden.transpose(0, 1).contiguous()
@@ -1045,7 +1123,7 @@ class WCP(nn.Module):
 
 
 class WOP(nn.Module):
-    def __init__(self, iS=300, hS=100, lS=2, dr=0.3, n_cond_ops=3):
+    def __init__(self, iS=300, hS=100, lS=2, dr=0.3, n_cond_ops=4):
         super(WOP, self).__init__()
         self.iS = iS
         self.hS = hS
@@ -1146,10 +1224,11 @@ class WOP(nn.Module):
         #  --> [B, 4, dim]
         c_n = torch.mul(wenc_n.unsqueeze(1), p.unsqueeze(3)).sum(dim=2)
 
-        # [bS, 5-1, dim] -> [bS, 5-1, 3]
+        # [bS, 5-1, dim] -> [bS, 5-1, 4]
 
         vec = torch.cat([self.W_c(c_n), self.W_hs(wenc_hs_ob)], dim=2)
         s_wo = self.wo_out(vec)
+        s_wo[:, :, 3] = -10000000000.0
         #s_wo = self.softmax_dim2(s_wo)
 
         return s_wo
@@ -1506,7 +1585,7 @@ class WVP_se2(nn.Module):
                 real = []
                 for idx in range(wvi1[b][wc], l_token[b]):
                     real.append(wenc_n[b, idx])
-                    real = real[:mvl]
+                real = real[:mvl]
                 pad = (mvl - len(real)) * [wenc_n.new_zeros(wenc_n.size()[-1])] # this padding could be wrong. Test with zero padding later. wn[b] is an int to indicate how many cols are selected
                 big_real1 = torch.stack(real + pad) # It is not used in the loss function.
                 big_real.append(big_real1)

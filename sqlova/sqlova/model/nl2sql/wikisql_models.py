@@ -164,7 +164,7 @@ class Seq2SQL_v1(nn.Module):
         """
         Execution-guided beam decoding.
         """
-        '''
+        
         s_sn = self.snp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_sn=show_p_sn)
         
         pr_sn = pred_sn(s_sn)
@@ -176,7 +176,7 @@ class Seq2SQL_v1(nn.Module):
         s_sa = self.sap(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, pr_sn, pr_sc, show_p_sa=show_p_sa)
         
         pr_sa = pred_sa(pr_sn, s_sa)
-        '''
+        
         #pr_sc = guide_pred_sc(pr_sn, s_sc, pr_sa, tb)
         
         s_wn = self.wnp(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, show_p_wn=show_p_wn)
@@ -258,6 +258,24 @@ class Seq2SQL_v1(nn.Module):
                 normal_sql_i[ib]['sel'] = new_sel
                 normal_sql_i[ib]['agg'] = new_agg
                 cur_scas = not_repeated_scas
+            
+            prob_sc1 = s_sc[ib]
+            rank_sc = argsort(-prob_sc1.data.cpu().numpy())
+            good_sca = []
+            for sc_now, sa_now in zip(normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg']):
+                if sa_now == 0 or sa_now == 4 or tb[ib]['types'][sc_now] == 'real':
+                    good_sca.append([sc_now, sa_now])
+                else:
+                    for sc_cur in rank_sc:
+                        if sc_cur >= l_hs[ib]:
+                            continue
+                        if tb[ib]['types'][sc_cur] == 'real':
+                            good_sca.append([sc_cur, sa_now])
+                            break
+            if good_sca:
+                normal_sql_i[ib]['sel'] = [e[0] for e in good_sca]
+                normal_sql_i[ib]['agg'] = [e[1] for e in good_sca]
+            
             colss = [e[0] for e in cur_conds]
             prob_list_h = argsort(-s_wc[ib].data.cpu().numpy()).tolist()
             if len(list(set(colss))) != len(colss):
@@ -413,6 +431,7 @@ class Seq2SQL_v1(nn.Module):
                                 
                     if not ok:
                         new_conds.append(cond)
+                        
             pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
             if not engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], new_conds, rela):
                 still_error += 1

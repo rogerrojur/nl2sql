@@ -346,8 +346,9 @@ class Seq2SQL_v1(nn.Module):
                             for cond in normal_sql_i[ib]['conds']:
                                 if cond[0] == rpc:
                                     clean_conds.append(cond)
-                            normal_sql_i[ib]['conds'] = clean_conds
-                            normal_sql_i[ib]['cond_conn_op'] = 2
+                            if clean_conds:
+                                normal_sql_i[ib]['conds'] = clean_conds
+                                normal_sql_i[ib]['cond_conn_op'] = 2
                     else:
                         abandon_part = conversion_idxs[-(nb_of_conversion - len(conversion_elements)):]
                         conversion_idxs = conversion_idxs[:len(conversion_elements)]
@@ -374,8 +375,9 @@ class Seq2SQL_v1(nn.Module):
                             for cond in normal_sql_i[ib]['conds']:
                                 if cond[0] == rpc:
                                     clean_conds.append(cond)
-                            normal_sql_i[ib]['conds'] = clean_conds
-                            normal_sql_i[ib]['cond_conn_op'] = 2
+                            if clean_conds:
+                                normal_sql_i[ib]['conds'] = clean_conds
+                                normal_sql_i[ib]['cond_conn_op'] = 2
                             
                         if len(normal_sql_i[ib]['conds']) <= 1:
                             normal_sql_i[ib]['cond_conn_op'] = 0
@@ -431,7 +433,8 @@ class Seq2SQL_v1(nn.Module):
                                 
                     if not ok:
                         new_conds.append(cond)
-                        
+            if not new_conds:
+                new_conds = normal_sql_i[ib]['conds']
             pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
             if not engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], new_conds, rela):
                 still_error += 1

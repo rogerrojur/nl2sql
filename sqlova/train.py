@@ -25,8 +25,6 @@ from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
 
-import token_utils
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ################################################################
@@ -55,9 +53,6 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 # logger.info('this is info message')
-
-# disable the logging
-logging.disable(logging.DEBUG)
 ################################################################
 
 def construct_hyper_param(parser):
@@ -309,7 +304,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
             print('g_wv: ', g_wv)
             print('g_wrcn: ', g_wrcn)
             '''
-            
+        
             #g_sn: (a list of double) number of select column;
             #g_sc: (a list of list) select column names;
             #g_sa: (a list of list) agg for each col;
@@ -324,7 +319,7 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
             wemb_n, wemb_h, l_n, l_hpu, l_hs, \
             nlu_tt, t_to_tt_idx, tt_to_t_idx, wemb_v, l_npu, l_token \
                 = get_wemb_bert(bert_config, model_bert, tokenizer, nlu_t, hds, max_seq_length,
-                                num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers, num_out_layers_v=num_target_layers)
+                            num_out_layers_n=num_target_layers, num_out_layers_h=num_target_layers, num_out_layers_v=num_target_layers)
             '''
             print('wemb_n: ', torch.tensor(wemb_n).size())
             print('wemb_h: ', torch.tensor(wemb_h).size())
@@ -333,16 +328,18 @@ def train(train_loader, train_table, model, model_bert, opt, bert_config, tokeni
             #print('l_hpu: ', l_hpu)
             #print('l_hs: ', l_hs)
             #print('nlu_tt: ', nlu_tt[0])
-            
+        
             #print('t_to_tt_idx: ', t_to_tt_idx)
             #print('tt_to_t_idx: ', tt_to_t_idx)
             #print('g_wvi_corenlp', g_wvi_corenlp)
-            
+        
             # wemb_n: natural language embedding
             # wemb_h: header embedding
             # l_n: token lengths of each question
             # l_hpu: header token lengths
             # l_hs: the number of columns (headers) of the tables.
+        
+            #
             g_wvi = get_g_wvi_bert_from_g_wvi_corenlp(t_to_tt_idx, g_wvi_corenlp)#if not exist, it will not train not include the length, so the end value is the start index of this word, not the end index of this word, so it need to add sth
             g_wvi = g_wvi_corenlp
             if g_wvi:
@@ -588,6 +585,9 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     cnt_wvi = 0
     cnt_lx = 0
     cnt_x = 0
+    cnt_err = 0
+    cnt_still = 0
+    cnt_skip = 0
 
     cnt_hrpc = 0
 
@@ -596,6 +596,8 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     engine = DBEngine(os.path.join(path_db, f"{dset_name}.db"))
     results = []
     for iB, t in enumerate(data_loader):
+
+        #print('iB : %d' % iB)
 
         cnt += len(t)
         if cnt < st_pos:
@@ -631,6 +633,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
                 results1["nlu"] = nlu[b]
                 results1["table_id"] = tb[b]["id"]
                 results.append(results1)
+            cnt_skip += len(nlu)
             continue
 
         # model specific part
@@ -650,20 +653,41 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
             # g_sql_i = generate_sql_i(g_sc, g_sa, g_wn, g_wc, g_wo, g_wv_str, nlu)
             pr_sql_i = generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv_str, nlu)
         else:
+            
+            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
+            pr_sn1, pr_sc1, pr_sa1, pr_wn1, pr_wr1, pr_hrpc1, pr_wc1, pr_wo1, pr_wvi1 = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
+            pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi1)
+            pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
+            pr_sql_i1 = generate_sql_i(pr_sc1, pr_sa1, pr_wn1, pr_wr1, pr_wc1, pr_wo1, pr_wv_str, nlu)
+            
             # Execution guided decoding
-            prob_sca, prob_w, prob_wn_w, pr_sc, pr_sa, pr_wn, pr_sql_i = model.beam_forward(wemb_n, l_n, wemb_h, l_hpu,
-                                                                                            l_hs, engine, tb,
-                                                                                            nlu_t, nlu_tt,
-                                                                                            tt_to_t_idx, nlu,
-                                                                                            beam_size=beam_size)
+            pr_sql_i, exe_error1, still_error1 = model.beam_forward(pr_sql_i1, mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token, engine, tb, nlu_t, beam_size=beam_size)
             # sort and generate
-            pr_wc, pr_wo, pr_wv, pr_sql_i = sort_and_generate_pr_w(pr_sql_i)
+            #pr_wc, pr_wo, pr_wv, pr_sql_i = sort_and_generate_pr_w(pr_sql_i)
+            cnt_err += exe_error1
+            cnt_still += still_error1
+            
+            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv = generate_pr(pr_sql_i)
 
             # Follosing variables are just for the consistency with no-EG case.
             pr_wvi = None # not used
             pr_wv_str=None
             pr_wv_str_wp=None
             loss = torch.tensor([0])
+            '''
+            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model.beam_forward(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token, engine, tb, nlu_t, beam_size=beam_size)
+
+            # get loss & step
+            #loss = Loss_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wrpc, s_nrpc, s_wc, s_wo, s_wv1, s_wv2, g_sn, g_sc, g_sa, g_wn, g_dwn, g_wr, g_wc, g_wo, g_wvi, g_wrcn)
+            #unable for loss
+            loss = torch.tensor([0])
+            # prediction
+            pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_hrpc, pr_wc, pr_wo, pr_wvi = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
+            pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi)
+            pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
+            # g_sql_i = generate_sql_i(g_sc, g_sa, g_wn, g_wc, g_wo, g_wv_str, nlu)
+            pr_sql_i = generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv_str, nlu)
+            '''
 
 
 
@@ -720,6 +744,10 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         cnt_wvi += sum(cnt_wvi1_list)
         cnt_lx += sum(cnt_lx1_list)
         cnt_x += sum(cnt_x1_list)
+        
+        if iB % 10 == 0:
+            logger.info('%d - th data batch -> loss: %.4f; acc_sn: %.4f; acc_sc: %.4f; acc_sa: %.4f; acc_wn: %.4f; acc_wr: %.4f; acc_wc: %.4f; acc_wo: %.4f; acc_wvi: %.4f; acc_wv: %.4f; acc_lx: %.4f; acc_x: %.4f; execute_error: %.4f; skip_error: %.4f; still_error: %.4f' % 
+                (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt, cnt_err / cnt, cnt_skip / cnt, cnt_still / cnt))
 
         cnt_hrpc += sum(cnt_hrpc1_list)     # The count of hrpc
 
@@ -790,7 +818,6 @@ if __name__ == '__main__':
         print('do nothing other than tokening.')
         token_utils.token_train_val(base_path=path_wikisql)
         sys.exit(0)
-
     ## 3. Load data
     train_data, train_table, dev_data, dev_table, train_loader, dev_loader = get_data(path_wikisql, args)
     print("train_data: ", len(train_data))

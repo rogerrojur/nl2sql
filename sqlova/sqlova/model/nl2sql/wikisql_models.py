@@ -287,7 +287,7 @@ class Seq2SQL_v1(nn.Module):
                         pass
                     if col_res != -1 and cnt_max == 1:
                         #print('single')
-                        pr_wn1 = [1] * bS
+                        pr_wn1 = [4] * bS
                         pr_wc1 = [[col_res for _1 in range(self.max_wn)] for _ in range(bS)]
                         s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
                         pr_wo1 = pred_wo(pr_wn1, s_wo1)
@@ -297,7 +297,7 @@ class Seq2SQL_v1(nn.Module):
                         #print(cnt_max)
                         correct_cnt_max = min(4, cnt_max)
                         pr_wn1 = [correct_cnt_max] * bS
-                        pr_wc1 = [[col_res for _1 in range(self.max_wn)] for _ in range(bS)]
+                        pr_wc1 = [[col_res for _1 in range(correct_cnt_max)] for _ in range(bS)]
                         s_wr1 = self.wrp(wemb_n, l_n, pr_wn1, show_p_wr=show_p_wr)
                         pr_wr1 = pred_wr(pr_wn1, s_wr1)
                         s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
@@ -315,10 +315,10 @@ class Seq2SQL_v1(nn.Module):
                 nb_of_conversion = 0
                 conversion_idxs = []
                 for i, cond in enumerate(cur_conds):
-                    if cond[1] != 2:
-                        continue
                     if engine.check_wc_wv(tb[ib]['id'], cond[0], cond[2]):
                         skip_dict[cond[0]].add(cond[2])
+                        continue
+                    if cond[1] != 2:
                         continue
                     else:
                         nb_of_conversion += 1
@@ -397,7 +397,14 @@ class Seq2SQL_v1(nn.Module):
                     ok = False
                     prob_wc1 = s_wc[ib]
                     rank_hs = argsort(-prob_wc1.data.cpu().numpy())
-                    if True:
+                    
+                    if not ok:
+                        if cond[1] <= 1 and tb[ib]['types'][cond[0]] == 'real':
+                            if not ok and check_is_digits(cond[2]):
+                                new_conds.append([cond[0], cond[1], cond[2]])
+                                ok = True
+                    
+                    if not ok:
                         for col in rank_hs:
                             if col >= l_hs[ib]:
                                 continue
@@ -408,7 +415,36 @@ class Seq2SQL_v1(nn.Module):
                                     new_conds.append([col, cond[1], cond[2]])
                                 ok = True
                                 break
-                    if not ok and cond[1] <= 1 and tb[ib]['types'][cond[0]] == 'text':
+                    
+                    if not ok and cond[1] == 2:
+                        pr_wn1 = [self.max_wn] * bS
+                        pr_wc1 = [[cond[0] for _1 in range(self.max_wn)] for _ in range(bS)]
+                        s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
+                        pr_wo1 = pred_wo(pr_wn1, s_wo1)
+                        s_wv1_temp = self.wvp1(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, wo=pr_wo1, show_p_wv=show_p_wv)
+                        prob_wv_temp = s_wv1_temp[ib][i]
+                        rank_wv = argsort(-prob_wv_temp.data.cpu().numpy())
+                        for st in rank_wv:
+                            if ok:
+                                break
+                            if st >= l_token[ib]:
+                                continue
+                            for ed in range(st, min(st + mvl, len(nlu_t[ib]))):
+                                wv_str = single_wvi2str([st, ed], nlu_t[ib])
+                                if not wv_str.isdigit() and len(wv_str) == 1:
+                                    continue
+                                if engine.check_wc_wv(tb[ib]['id'], cond[0], wv_str):
+                                    new_conds.append([cond[0], cond[1], wv_str])
+                                    ok = True
+                                    break
+                    
+                    if not ok:
+                        if tb[ib]['types'][cond[0]] == 'real':
+                            if not ok and check_is_digits(cond[2]):
+                                new_conds.append([cond[0], cond[1], cond[2]])
+                                ok = True
+                                
+                    if not ok and cond[1] <= 1:
                         for col1 in rank_hs:
                             if ok:
                                 break
@@ -420,12 +456,23 @@ class Seq2SQL_v1(nn.Module):
                                     new_conds.append([col1, cond[1], cond[2]])
                                     ok = True
                                     break
-                                
-                                for st in range(0, len(nlu_t[ib])):
+                                pr_wn1 = [self.max_wn] * bS
+                                pr_wc1 = [[col1 for _1 in range(self.max_wn)] for _ in range(bS)]
+                                s_wo1 = self.wop(wemb_n, l_n, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, show_p_wo=show_p_wo)
+                                pr_wo1 = pred_wo(pr_wn1, s_wo1)
+                                #print(s_wo1.size())
+                                s_wv1_temp = self.wvp1(wemb_v, l_npu, l_token, wemb_hpu, l_hpu, l_hs, wn=pr_wn1, wc=pr_wc1, wo=pr_wo1, show_p_wv=show_p_wv)
+                                prob_wv_temp = s_wv1_temp[ib][i]
+                                rank_wv = argsort(-prob_wv_temp.data.cpu().numpy())
+                                for st in rank_wv:
                                     if ok:
                                         break
+                                    if st >= l_token[ib]:
+                                        continue
                                     for ed in range(st, min(st + mvl, len(nlu_t[ib]))):
                                         wv_str = single_wvi2str([st, ed], nlu_t[ib])
+                                        if not wv_str.isdigit() and len(wv_str) == 1:
+                                            continue
                                         if engine.check_wc_wv(tb[ib]['id'], col1, wv_str):#wv 是否存在于 table
                                             new_conds.append([col1, cond[1], wv_str])
                                             ok = True

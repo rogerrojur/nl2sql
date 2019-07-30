@@ -4,7 +4,7 @@
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode val --token 0
+#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode train --token 0
 from pytorch_pretrained_bert import BertModel, BertTokenizer
 
 import numpy as np
@@ -781,12 +781,14 @@ if __name__ == '__main__':
     path_save_for_evaluation = './'
 
     if args.token == 1:
+        print('tokening and train/val.')
         token_utils.token_train_val(base_path=path_wikisql)
         print('tokening over...\ntraining...')
     elif args.token == 0:
-        print('args.token == 1, token skipped.')
+        print('args.token == 1, token skipped, train/val only.')
     else:
         print('do nothing other than tokening.')
+        token_utils.token_train_val(base_path=path_wikisql)
         sys.exit(0)
 
     ## 3. Load data

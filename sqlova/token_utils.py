@@ -738,7 +738,7 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
     return results_list
 
 
-words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', 
+words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', '企鹅公司':'腾讯公司',
             '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京，上海，广州','北上':'北京和上海',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
@@ -746,8 +746,16 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
-            '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下集':'青铜器辨伪三百例上集和青铜器辨伪三百例下集',
-            '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾'}
+            '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下':'青铜器辨伪三百例上和青铜器辨伪三百例下',
+            '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾','建行':'建设银行','蜂制品':'蜂产品',
+            '不好意思，':'', '请问一下':'', '请问':'', '打扰一下，':'',
+            '你好，':'', '你好':'', '你知道':'',  '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
+            '你给说说':'','你给我说说':'','能给我查一下':'',
+            '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
+            '帮我看一下':'', '我想咨询一下':'', '我想了解':'', '能帮我查询一下':'', '我想查一下':'','我只想知道':'',
+            '我只想了解一下':'', '我只想查一下':'', '我只想咨询一下':'', '我问问':'', '帮我查查':'', '我想查查':'',
+            '想要了解一下':'', '想了解一下':'', '想咨询一下':'', '想问一下':'', '想要了解':'', '想了解':'','能说一下':'','能介绍一下':'', 
+            '想要':'', '查下':'', '就是':'', '麻烦':''}
 
 
 def is_valid_char(uchar):
@@ -869,7 +877,8 @@ def get_best_match(token_list, words, ix, tmp_list, candidate_list):
             dup_ratio, dup_end_ix = max_ratio, end_index
         if max_ratio == total_max_ratio and end_index == total_max_end_ix and word.endswith(token_list[ix]) and max_ratio < 0.8:
             dup_ratio, dup_end_ix = max_ratio, end_index
-        if max_ratio > total_max_ratio:
+        # 如 蜂/制品 -- 蜂蜜 蜂产品 都是0.66666，则对较长的进行匹配 
+        if max_ratio > total_max_ratio or (max_ratio == total_max_ratio and end_index > total_max_end_ix):
             total_max_ratio, total_max_word, total_max_end_ix = max_ratio, word, end_index
         
     if total_max_ratio == dup_ratio and total_max_end_ix == dup_end_ix:
@@ -894,7 +903,7 @@ def _contain_non_digit(s):
 
 def _qualify(words, token, next_token, order):
     """
-    函数：对token进行检查，是否符合进行模糊匹配的条件
+    对token进行检查，是否符合进行模糊匹配的条件：年份，包含中文，包含非数字
     """
     if token == '': return False    # 如果已经被处理
     if token[0] in '0123456789':
@@ -958,6 +967,7 @@ def tokens_part_match_1th(token_list, words, other_words, order):
     for ix, token in enumerate(new_list):
         # 如果不符合条件，则继续下一个
         next_token = new_list[ix+1] if ix < token_list_len-1 else None
+        # 年份，中文，非数字
         if not _qualify(words, token, next_token, order): continue
 
         tmp_set = set()
@@ -1028,6 +1038,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
                     break
             if get_similarity(tmp_str, single_word) < 0.7 and single_word.endswith(tmp_token):
                 continue
+            # 对于常见字符单独处理
+            if tmp_str in ['本书'] and single_word.startswith(tmp_str):
+                continue
             # 当我们找到一个唯一的匹配时，还要加一个限制条件，即tmp_str和single_word差异太大时忽略改变
             # 徐伟水泥制品厂 徐伟 0.5
             # 可能需要针对train进行单独处理，毕竟train的val很少
@@ -1080,9 +1093,9 @@ def tokens_part_match(token_list, words, table=None, other_words=None, order=0):
     words = remove_null(words)
 
     # 第一轮匹配，以第一个字符相等为触发条件进行匹配
-    new_list = tokens_part_match_1th(new_list, words, other_words, order)
-    # 第二轮匹配，以token出现在word中为触发条件进行匹配
     new_list = tokens_part_match_2th(new_list, words, other_words, order)
+    # 第二轮匹配，以token出现在word中为触发条件进行匹配
+    new_list = tokens_part_match_1th(new_list, words, other_words, order)
 
     return new_list
     
@@ -1283,6 +1296,25 @@ def check_wv_in_table(table, conds, split):
     return wv_pos
 
 
+useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已'}
+def remove_useless_words(token_list):
+    """删除一些无用的词，去掉不影响语意的"""
+    new_list = []
+    for token in token_list:
+        if token not in useless_words:
+            new_list.append(token)
+    return new_list
+
+
+def get_table_words(table):
+    """提取table中的词, 同时进行排序和过滤"""
+    table_words = set([str(w) for row in table['rows'] for w in row])
+    # 对table中的词进行过滤
+    table_words = table_words_filter(table_words)   
+    table_words = sorted([w for w in table_words if len(w) <= 50], key=lambda x : -len(x))   # 从长到短排序
+    return table_words
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -1323,11 +1355,11 @@ def annotate_example_nlpir(example, table, split):
     # 对原始数据进行操作，不改变原question内容，''.join()后的内容不会发生变化, 进一步细粒度划分
     processed_nlu_token_list = pre_no_change_process(_nlu_ann)
 
+    # 去除token_list中的停用词, >>> 来着 了 呢 儿 会 吗 来着 已
+    processed_nlu_token_list = remove_useless_words(processed_nlu_token_list)
+
     # 获取table中的words
-    table_words = set([str(w) for row in table['rows'] for w in row])
-    # 对table中的词进行过滤
-    table_words = table_words_filter(table_words)   
-    table_words = sorted([w for w in table_words if len(w) < 50], key=lambda x : -len(x))   # 从长到短排序
+    table_words = get_table_words(table)
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
@@ -1352,7 +1384,7 @@ def annotate_example_nlpir(example, table, split):
     # }
     # 测试集中没有sql属性，在这个地方进行判断
     if 'sql' not in example:
-        return ann
+        return ann, table_words
         
     # Check whether wv_ann exsits inside question_tok
 
@@ -1361,10 +1393,10 @@ def annotate_example_nlpir(example, table, split):
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # 不匹配的wvi不冲突
         # 这个变量表示，如果需要插入wv
-        insert_wv = False
-        if insert_wv:
+        insert_wv = True
+        if insert_wv and split == 'train':
             unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
-            if unmatch_set and split != 'test':
+            if unmatch_set:
                 # 如果存在不匹配的列表
                 # print('unmatch_set find')
                 question_tok_new = replace_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp, unmatch_set)
@@ -1400,7 +1432,7 @@ def annotate_example_nlpir(example, table, split):
     wv_pos = check_wv_in_table(table, ann['sql']['conds'], split)
     ann['wv_pos'] = wv_pos
 
-    return ann
+    return ann, table_words
 
 
 def count_lines(fname):
@@ -1408,11 +1440,77 @@ def count_lines(fname):
         return sum(1 for line in f)
 
 
-def detokenize(tokens):
-    ret = ''
-    for g, a in zip(tokens['gloss'], tokens['after']):
-        ret += g + a
-    return ret.strip()
+def check_in_words(words, token):
+    """Check if token is contained in one of the words"""
+    for word in words:
+        if word.find(token) != -1:
+            return True
+    return False
+
+
+def _part_ignore(token_list, wvis, table, prob):
+    """Ignore part of the tokens in the question_tok"""
+    flags = [False] * len(token_list)   # False: can be ignored
+    exclude_words = table['header']     # Any token contained in these words shouldn't be ignored
+    for wvi in wvis:
+        for i in range(wvi[0], wvi[1]+1):
+            flags[i] = True     # True: can not be ignored
+
+    # Ignore part of the words.
+    for i in range(len(token_list)):
+        if not flags[i] and random.random() < prob and not check_in_words(exclude_words, token_list[i]):
+            token_list[i] = ''
+
+    # Update wvi
+    for i in range(len(wvis)):
+        wvi = wvis[i]
+        null_num = sum([1 for token in token_list[:wvi[0]] if token == ''])
+        wvi[0], wvi[1] = wvi[0] - null_num, wvi[1] - null_num
+
+    # Remove '' in token_list
+    new_token_list = []
+    for token in token_list:
+        if token != '':
+            new_token_list.append(token)
+
+    return new_token_list, wvis
+
+
+
+def ignore_words(ann, table_words, prob=0.15, repeat=2):
+    """
+    Ignore 15% of the words which are not in the table
+    """
+    results = [ann]
+    if not ann['wvi_corenlp']:  # if wvi is none, then do nothing
+        return results
+    for i in range(repeat):
+        new_ann = copy.deepcopy(ann)
+        new_ann['question_tok'], new_ann['wvi_corenlp'] = _part_ignore(new_ann['question_tok'], new_ann['wvi_corenlp'], table, prob)
+        results.append(new_ann)
+    return results
+
+
+def _synonyms_replace(token_list, table_words, synonyms_dic):
+    for i, token in enumerate(token_list):
+        if token in synonyms_dic and token not in table_words:
+            token_list[i] = random.choice(synonyms_dic[token])  # random select one
+    return token_list
+
+
+def synonyms_replace(ann, table_words, synonyms_dic, repeat=3):
+    """
+    Replace the synonyms in the dataset
+
+    Parameters:
+        synonyms_dic: w1:[w1, w2, ..., wn]
+    """
+    results = [ann]
+    for i in range(repeat):
+        new_ann = copy.deepcopy(ann)
+        new_ann['question_tok'] = _synonyms_replace(new_ann['question_tok'], table_words, synonyms_dic)
+        results.append(new_ann)
+    return results
 
 
 def permute_agg_sel(ann):
@@ -1465,6 +1563,9 @@ def get_mvl(example):
     return max_len
 
 
+appid = '20190727000321747' #你的appid
+secretKey = 'Xx4oRkPel9qANIpqh1kT' #你的密钥
+httpClient = None   # Initialize to None
 def translate(q, httpClient, fromLang, toLang):
     """
     translate question q from one language to another language
@@ -1501,10 +1602,10 @@ def translate(q, httpClient, fromLang, toLang):
     return None
 
 
-appid = '20190727000321747' #你的appid
-secretKey = 'Xx4oRkPel9qANIpqh1kT' #你的密钥
-httpClient = None   # Initialize to None
 def trans(path='./wikisql/data/tianchi/'):
+    """
+    Translate each record in test dataset.
+    """
     httpClient = http.client.HTTPConnection('api.fanyi.baidu.com')
     fail_count = 0
     cnt = 0
@@ -1526,6 +1627,23 @@ def trans(path='./wikisql/data/tianchi/'):
     httpClient.close()
 
 
+def _read_dic(fname):
+    """Read dict file dic.txt"""
+    synonyms_dic = {}
+    with open(fname, encoding='utf8') as fs:
+        for line in fs:
+            if line.startswith('#') or line.strip() == '':
+                continue
+            if line.find(':') == -1:
+                words = line.strip().split()
+                for word in words:
+                    synonyms_dic[word] = words
+            else:
+                words = line.strip().split(':')
+                synonyms_dic[words[0]] = words[1]
+
+    return synonyms_dic
+
 # 定义接口函数
 def token_train_val(base_path='./wikisql/data/tianchi/'):
     """
@@ -1533,6 +1651,7 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
     Parameters:
         base_path: 基本路径
     """
+    synonyms_dic = _read_dic('./dic.txt')
     # the tokened file of test is used to debug.
     for split in ['train', 'val','test']:
         fsplit = os.path.join(base_path, split) + '.json'
@@ -1555,9 +1674,16 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
             for line in tqdm(fs, total=count_lines(fsplit)):
                 d = json.loads(line)
                 # a = annotate_example(d, tables[d['table_id']])
-                a = annotate_example_nlpir(d, tables[d['table_id']], split)
+                a, table_words = annotate_example_nlpir(d, tables[d['table_id']], split)
 
+                # repeat 表示进行随机忽略的个数
                 a_list = [a]
+                if split == 'train':
+                    # data boarden by replacing with synonyms.
+                    a_list = synonyms_replace(a, table_words, synonyms_dic, repeat=2)
+                    if False:
+                        # data boarden by ignoring part of the words.
+                        a_list = ignore_words(a, table_words, prob=0.15, repeat=0)
                 # 如果数据为train，则对json语句进行数据增广，即数据进行扩展
                 # if split == 'train':
                 #     a_list = data_broaden(a)
@@ -1579,9 +1705,10 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
             print('drop %d(%.3f) examples where mvl is None' % (mvl_none, mvl_none/cnt))
 
 
+# 定义接口函数
 def token_test_each(record, tables):
     """
-    Generate the tokened record for each record in the test dataset.
+    Token each record in the test dataset.
 
     Parameters:
         record: a record in the test
@@ -1590,4 +1717,5 @@ def token_test_each(record, tables):
     Return:
         the tokened record for the input record
     """
-    return annotate_example_nlpir(record, tables[record['table_id']], 'test')
+    a, table_words = annotate_example_nlpir(record, tables[record['table_id']], 'test')
+    return a

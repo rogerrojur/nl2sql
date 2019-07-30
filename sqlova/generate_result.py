@@ -11,7 +11,7 @@ Created on Mon Jul  1 20:59:53 2019
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 222
+#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --EG
 from bert.modeling import BertConfig
 
 import numpy as np
@@ -31,6 +31,8 @@ from pytorch_pretrained_bert import BertModel, BertTokenizer
 from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
+
+import token_utils
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -272,7 +274,7 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         for b, pr_sql_i1 in enumerate(pr_sql_i):
             
             results1 = pr_sql_i1
-            print(results1)
+            # print(results1)
             results.append(results1)
             
     return results

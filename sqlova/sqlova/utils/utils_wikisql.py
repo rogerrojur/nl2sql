@@ -23,6 +23,8 @@ from .wikisql_formatter import get_squad_style_ans
 
 from collections import defaultdict
 
+import token_utils
+
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,7 +53,7 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
         mode = f"{mode}"
         print('Augmented data is loaded!')
 
-    path_sql = os.path.join(path_wikisql, mode+'_tok.json')
+    path_sql = os.path.join(path_wikisql, mode+'.json')
     if no_hs_tok:
         path_table = os.path.join(path_wikisql, mode + '.tables.json')
     else:
@@ -59,14 +61,6 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
 
     data = []
     table = {}
-    with open(path_sql, encoding='utf-8') as f:
-        for idx, line in enumerate(f):
-            if toy_model and idx >= toy_size:
-                break
-
-            t1 = json.loads(line.strip())
-            data.append(t1)
-
     with open(path_table, encoding='utf-8') as f:
         for idx, line in enumerate(f):
             if toy_model and idx > toy_size:
@@ -74,6 +68,18 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
 
             t1 = json.loads(line.strip())
             table[t1['id']] = t1
+
+    with open(path_sql, encoding='utf-8') as f:
+        for idx, line in enumerate(f):
+            if toy_model and idx >= toy_size:
+                break
+
+            t1 = json.loads(line.strip())
+            # 整合token函数，直接对train/val/test.json中的record进行token后加入data，再构造dataloader
+            # None表示token产生的句子不符合条件，只针对train和val
+            t1 = token_utils.token_each(t1, table[t1['table_id']], mode)
+            if t1 != None:
+                data.append(t1)
 
     return data, table
 

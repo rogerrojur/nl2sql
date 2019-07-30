@@ -4,7 +4,7 @@
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode train --token 0
+#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode train --token 0 --EG
 from pytorch_pretrained_bert import BertModel, BertTokenizer
 
 import numpy as np
@@ -24,6 +24,8 @@ from bert.modeling import BertConfig
 from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
+
+import token_utils
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,6 +54,8 @@ ch.setFormatter(formatter)
 # 添加两个Handler
 logger.addHandler(ch)
 logger.addHandler(fh)
+
+logging.disable(logging.DEBUG)
 # logger.info('this is info message')
 ################################################################
 
@@ -230,6 +234,7 @@ def get_models(args, BERT_PT_PATH, trained=False, path_model_bert=None, path_mod
     return model, model_bert, tokenizer, bert_config
 
 def get_data(path_wikisql, args):
+    print('加载数据会持续1~2min...')
     train_data, train_table, dev_data, dev_table, _, _ = load_wikisql(path_wikisql, args.toy_model, args.toy_size, no_w2i=True, no_hs_tok=True)
     train_loader, dev_loader = get_loader_wikisql(train_data, dev_data, args.bS, shuffle_train=True)
 
@@ -722,13 +727,6 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
 
         # stat
         ave_loss += loss.item()
-
-        cnt_hrpc1_list = []
-        for b in range(len(g_wrcn)):
-            if (g_wrcn[b][0] == -1 and pr_hrpc[b] == 0) or (g_wrcn[b][0] != -1 and pr_hrpc[b] != 0):
-                cnt_hrpc1_list.append(1)
-            else:
-                cnt_hrpc1_list.append(0)
         
         #print('loss: ', ave_loss / cnt)
 
@@ -748,8 +746,6 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
         if iB % 10 == 0:
             logger.info('%d - th data batch -> loss: %.4f; acc_sn: %.4f; acc_sc: %.4f; acc_sa: %.4f; acc_wn: %.4f; acc_wr: %.4f; acc_wc: %.4f; acc_wo: %.4f; acc_wvi: %.4f; acc_wv: %.4f; acc_lx: %.4f; acc_x: %.4f; execute_error: %.4f; skip_error: %.4f; still_error: %.4f' % 
                 (iB, ave_loss / cnt, cnt_sn / cnt, cnt_sc / cnt, cnt_sa / cnt, cnt_wn / cnt, cnt_wr / cnt, cnt_wc / cnt, cnt_wo / cnt, cnt_wvi / cnt, cnt_wv / cnt, cnt_lx / cnt, cnt_x / cnt, cnt_err / cnt, cnt_skip / cnt, cnt_still / cnt))
-
-        cnt_hrpc += sum(cnt_hrpc1_list)     # The count of hrpc
 
         current_cnt = [cnt_tot, cnt, cnt_sn, cnt_sc, cnt_sa, cnt_wn, cnt_wr, cnt_wc, cnt_wo, cnt_wv, cnt_wvi, cnt_lx, cnt_x]
         cnt_list1 = [cnt_sn1_list, cnt_sc1_list, cnt_sa1_list, cnt_wn1_list, cnt_wr1_list, cnt_wc1_list, cnt_wo1_list, cnt_wv1_list, cnt_lx1_list,
@@ -775,24 +771,17 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
     acc_lx = cnt_lx / cnt
     acc_x = cnt_x / cnt
 
-    # the accuracy of having repeated columns, need to be printed
-    acc_hrpc = cnt_hrpc / cnt
-
-    acc = [ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x, acc_hrpc]
+    acc = [ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x]
     return acc, results, cnt_list
 
 
 def print_result(epoch, acc, dname):
-    acc_hrpc = -1
-    if len(acc) == 12:
-        ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x = acc
-    else:
-        ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x, acc_hrpc = acc
+    ave_loss, acc_sn, acc_sc, acc_sa, acc_wn, acc_wr, acc_wc, acc_wo, acc_wvi, acc_wv, acc_lx, acc_x = acc
 
     print(f'{dname} results ------------')
     print(
         f" Epoch: {epoch}, ave loss: {ave_loss}, acc_sn: {acc_sn:.3f}, acc_sc: {acc_sc:.3f}, acc_sa: {acc_sa:.3f}, acc_wn: {acc_wn:.3f}, \
-        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}, acc_hrpc: {acc_hrpc:.3f}"
+        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}"
     )
 
 if __name__ == '__main__':
@@ -819,7 +808,10 @@ if __name__ == '__main__':
         token_utils.token_train_val(base_path=path_wikisql)
         sys.exit(0)
     ## 3. Load data
+    import time
+    s1 = time.time()
     train_data, train_table, dev_data, dev_table, train_loader, dev_loader = get_data(path_wikisql, args)
+    print('time: ', time.time() - s1)
     print("train_data: ", len(train_data))
     print("train_table: ", len(train_table))
     print("dev_data: ", len(dev_data))

@@ -7,3 +7,6 @@
 3. [提交文件](https://www.dropbox.com/sh/ldzb6jk4kyd8h9p/AADt4Ro0MKhyogQkzGPl_U3Ia?dl=0)
 
 注意：最新的模型需要train_tok切割为7的short
+
+运行说明:
+

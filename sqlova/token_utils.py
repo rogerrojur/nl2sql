@@ -1680,7 +1680,7 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                 a_list = [a]
                 if split == 'train':
                     # data boarden by replacing with synonyms.
-                    a_list = synonyms_replace(a, table_words, synonyms_dic, repeat=2)
+                    a_list = synonyms_replace(a, table_words, synonyms_dic, repeat=0)
                     if False:
                         # data boarden by ignoring part of the words.
                         a_list = ignore_words(a, table_words, prob=0.15, repeat=0)
@@ -1706,16 +1706,21 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
 
 
 # 定义接口函数
-def token_test_each(record, tables):
+def token_each(record, table, split):
     """
-    Token each record in the test dataset.
+    Token each record in the `split` dataset.
 
     Parameters:
-        record: a record in the test
+        record: a record in the `split` dataset
         tables: the tables for the test dataset
 
     Return:
         the tokened record for the input record
     """
-    a, table_words = annotate_example_nlpir(record, tables[record['table_id']], 'test')
-    return a
+    ann, table_words = annotate_example_nlpir(record, table, split)
+    if split != 'test':
+        mvl = get_mvl(ann)
+        # 如果token error或者mvl大于2表示不符合条件，返回None值，只针对train和val
+        if mvl > 2 or mvl == -1:
+            return None
+    return ann

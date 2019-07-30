@@ -234,6 +234,7 @@ def get_models(args, BERT_PT_PATH, trained=False, path_model_bert=None, path_mod
     return model, model_bert, tokenizer, bert_config
 
 def get_data(path_wikisql, args):
+    print('加载数据会持续1~2min...')
     train_data, train_table, dev_data, dev_table, _, _ = load_wikisql(path_wikisql, args.toy_model, args.toy_size, no_w2i=True, no_hs_tok=True)
     train_loader, dev_loader = get_loader_wikisql(train_data, dev_data, args.bS, shuffle_train=True)
 
@@ -780,7 +781,7 @@ def print_result(epoch, acc, dname):
     print(f'{dname} results ------------')
     print(
         f" Epoch: {epoch}, ave loss: {ave_loss}, acc_sn: {acc_sn:.3f}, acc_sc: {acc_sc:.3f}, acc_sa: {acc_sa:.3f}, acc_wn: {acc_wn:.3f}, \
-        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}, acc_hrpc: {acc_hrpc:.3f}"
+        acc_wr: {acc_wr:.3f}, acc_wc: {acc_wc:.3f}, acc_wo: {acc_wo:.3f}, acc_wvi: {acc_wvi:.3f}, acc_wv: {acc_wv:.3f}, acc_lx: {acc_lx:.3f}, acc_x: {acc_x:.3f}"
     )
 
 if __name__ == '__main__':
@@ -807,7 +808,10 @@ if __name__ == '__main__':
         token_utils.token_train_val(base_path=path_wikisql)
         sys.exit(0)
     ## 3. Load data
+    import time
+    s1 = time.time()
     train_data, train_table, dev_data, dev_table, train_loader, dev_loader = get_data(path_wikisql, args)
+    print('time: ', time.time() - s1)
     print("train_data: ", len(train_data))
     print("train_table: ", len(train_table))
     print("dev_data: ", len(dev_data))

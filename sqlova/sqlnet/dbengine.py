@@ -15,8 +15,44 @@ class DBEngine:
     def __init__(self, fdb):
         self.db = records.Database('sqlite:///{}'.format(fdb))
         #self.conn = self.db.get_connection()
+        
+    def check_wc_wv(self, table_id, wc, wv, lower=False):
+        if not table_id.startswith('Table'):
+            table_id = 'Table_{}'.format(table_id.replace('-', '_'))
+        table_info = self.db.query('SELECT sql from sqlite_master WHERE tbl_name = :name', name=table_id).all()[0].sql
+        schema_str = schema_re.findall(table_info)[0]
+        schema = {}
+        for tup in schema_str.split(','):
+            c, t = tup.split(' ')
+            schema[c] = t
+        where_col = 'col_{}'.format(wc+1)
+        val = wv
+        correct = True
+        if lower and isinstance(val, str):
+            val = val.lower()
+        if schema['col_{}'.format(wc+1)] == 'real' and not isinstance(val, (int, float)):
+            try:
+                val = float(parse_decimal(val, locale='en_US'))
+            except NumberFormatError as e:
+                correct = False
+        if not correct:
+            return False
+        where_val = val
+        
+        where_map = {where_col : where_val}
+        
+        query = 'SELECT COUNT(1) FROM {} WHERE {} = :{}'.format(table_id, where_col, where_col)
+        
+        out = self.db.query(query, **where_map)
+        myDict = out.as_dict()[0]
+        for key in myDict:
+            if myDict[key] >= 1:
+                return True
+            else:
+                return False
+        return False
 
-    def execute(self, table_id, select_index, aggregation_index, conditions, condition_relation, lower=True):
+    def execute(self, table_id, select_index, aggregation_index, conditions, condition_relation, lower=False):
         if not table_id.startswith('Table'):
             table_id = 'Table_{}'.format(table_id.replace('-', '_'))
         wr = ""
@@ -62,5 +98,7 @@ class DBEngine:
         if where_clause:
             where_str = 'WHERE ' + wr.join(where_clause)
         query = 'SELECT {} FROM {} {}'.format(tmp, table_id, where_str)
+        #print(query)
+        #print(where_map)
         out = self.db.query(query, **where_map)
         return out.as_dict()

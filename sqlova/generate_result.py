@@ -11,13 +11,13 @@ Created on Mon Jul  1 20:59:53 2019
 # Wonseok Hwang
 # Sep30, 2018
 
-#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400
+#execute : python generate_result.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 222
 from bert.modeling import BertConfig
 
 import numpy as np
 import os, argparse
 
-# from matplotlib.pylab import *
+from matplotlib.pylab import *
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
@@ -31,8 +31,6 @@ from pytorch_pretrained_bert import BertModel, BertTokenizer
 from sqlova.utils.utils_wikisql import *
 from sqlova.model.nl2sql.wikisql_models import *
 from sqlnet.dbengine import DBEngine
-
-import token_utils
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -216,16 +214,10 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
 
     engine = DBEngine(os.path.join(path_db, f"{dset_name}.db"))
     results = []
-    for iB, records in enumerate(data_loader):
+    for iB, t in enumerate(data_loader):
         #print('iB: ', iB)#to locate the error
 
-        # Invoke the token_test_each() function, which transfer each record in test to record_tok
-        # print(record)
-        # # print(data_table)
-        # print(record['table_id'])
-        t = []
-        for record in records:
-            t.append(token_utils.token_test_each(record, data_table))
+        #print(iB)
        
         # Get fields
         nlu, nlu_t, sql_i, sql_q, sql_t, tb, hs_t, hds = get_fields(t, data_table, no_hs_t=True, no_sql_t=True, generate_mode=True)
@@ -253,13 +245,19 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
             pr_sql_i = generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv_str, nlu)
         else:
             # Execution guided decoding
-            prob_sca, prob_w, prob_wn_w, pr_sc, pr_sa, pr_wn, pr_sql_i = model.beam_forward(wemb_n, l_n, wemb_h, l_hpu,
-                                                                                            l_hs, engine, tb,
-                                                                                            nlu_t, nlu_tt,
-                                                                                            tt_to_t_idx, nlu,
-                                                                                            beam_size=beam_size)
+            s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4 = model(mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token)
+            pr_sn1, pr_sc1, pr_sa1, pr_wn1, pr_wr1, pr_hrpc1, pr_wc1, pr_wo1, pr_wvi1 = pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl)
+            pr_wvi_decode = g_wvi_decoder_stidx_length_jian_yi(pr_wvi1)
+            pr_wv_str, pr_wv_str_wp = convert_pr_wvi_to_string(pr_wvi_decode, nlu_t, nlu_tt, tt_to_t_idx)
+            pr_sql_i1 = generate_sql_i(pr_sc1, pr_sa1, pr_wn1, pr_wr1, pr_wc1, pr_wo1, pr_wv_str, nlu)
+            
+            # Execution guided decoding
+            pr_sql_i, exe_error1, still_error1 = model.beam_forward(pr_sql_i1, mvl, wemb_n, l_n, wemb_h, l_hpu, l_hs, wemb_v, l_npu, l_token, engine, tb, nlu_t, beam_size=beam_size)
             # sort and generate
-            pr_wc, pr_wo, pr_wv, pr_sql_i = sort_and_generate_pr_w(pr_sql_i)
+            #print(pr_sql_i)
+            #pr_wc, pr_wo, pr_wv, pr_sql_i = sort_and_generate_pr_w(pr_sql_i)
+            
+            #pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv = generate_pr(pr_sql_i)
 
             # Follosing variables are just for the consistency with no-EG case.
             pr_wvi = None # not used
@@ -267,12 +265,14 @@ def test(data_loader, data_table, model, model_bert, bert_config, tokenizer,
             pr_wv_str_wp=None
             loss = torch.tensor([0])
 
-        pr_sql_q = generate_sql_q(pr_sql_i, tb)
+        #pr_sql_q = generate_sql_q(pr_sql_i, tb)
 
 
         # Saving for the official evaluation later.
         for b, pr_sql_i1 in enumerate(pr_sql_i):
+            
             results1 = pr_sql_i1
+            print(results1)
             results.append(results1)
             
     return results

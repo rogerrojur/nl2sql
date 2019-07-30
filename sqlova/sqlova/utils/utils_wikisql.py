@@ -52,8 +52,6 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
         print('Augmented data is loaded!')
 
     path_sql = os.path.join(path_wikisql, mode+'_tok.json')
-    if mode == 'test':
-        path_sql = os.path.join(path_wikisql, mode+'.json')
     if no_hs_tok:
         path_table = os.path.join(path_wikisql, mode + '.tables.json')
     else:
@@ -964,6 +962,46 @@ def pred_sn(s_sn):
     """
     return [s_sn1.argmax().item() for s_sn1 in s_sn]
 
+def guide_pred_sc(sn, s_sc, sa, tb):
+    s_sc = torch.sigmoid(s_sc)
+    pr_sc = []
+    for b, sn1 in enumerate(sn):
+        now_tb = tb[b]
+        s_sc1 = s_sc[b]
+        sa1 = sa[b]
+
+        pr_sc1 = argsort(-s_sc1.data.cpu().numpy()).tolist()
+        
+        sc = [-1 for _ in range(sn1)]
+        
+        for sn11 in range(sn1):
+            if sa1[sn11] != 0 and sa1[sn11] != 4:
+                if sn11 == 0:
+                    for sc1 in pr_sc1:
+                        if get_col_type(now_tb, sc1) == 'real':
+                            sc[sn11] = sc1
+                            break
+                else:
+                    for sc1 in pr_sc1:
+                        if sc1 not in sc[:sc1] and get_col_type(now_tb, sc1) == 'real':
+                            sc[sn11] = sc1
+                            break
+            else:
+                if sn11 == 0:
+                    sc[sn11] = pr_sc1[0]
+                else:
+                    for sc1 in pr_sc1:
+                        if sc1 not in sc[:sc1]:
+                            sc[sn11] = sc1
+                            break
+        
+        for i in range(len(sc)):
+            if sc[i] == -1:
+                sc[i] = pr_sc1[0]
+        
+        pr_sc.append(sc)
+    return pr_sc
+
 def pred_sc(sn, s_sc):
     """
     return: [ pr_wc1_i, pr_wc2_i, ...]
@@ -976,6 +1014,21 @@ def pred_sc(sn, s_sc):
 
         pr_sc1 = argsort(-s_sc1.data.cpu().numpy())[:sn1].tolist()
         pr_sc1.sort()#sort 可能是导致错位的罪魁祸首
+
+        pr_sc.append(pr_sc1)
+    return pr_sc
+
+def pred_sc_without_sort(sn, s_sc):
+    """
+    return: [ pr_wc1_i, pr_wc2_i, ...]
+    """
+    # get g_num
+    s_sc = torch.sigmoid(s_sc)
+    pr_sc = []
+    for b, sn1 in enumerate(sn):
+        s_sc1 = s_sc[b]
+
+        pr_sc1 = argsort(-s_sc1.data.cpu().numpy())[:sn1].tolist()
 
         pr_sc.append(pr_sc1)
     return pr_sc
@@ -1024,8 +1077,14 @@ def pred_wn(s_wn):
 def pred_wr(wn, s_wr):
     return [s_wr1.argmax().item() if wn1 >= 2 else 0 for s_wr1, wn1 in zip(s_wr, wn)] #it can only predict "and" "or"
 
+def re_pred_wr(wr, hrpc):
+    return [2 if hrpc1 else wr1 for hrpc1, wr1 in zip(hrpc, wr)]
+
 def pred_hrpc(s_hrpc):
     return [s_hrpc1.argmax().item() for s_hrpc1 in s_hrpc]
+
+def re_pred_hrpc(wr, hrpc):
+    return [0 if wr1 <= 1 else hrpc1 for hrpc1, wr1 in zip(hrpc, wr)]
 
 def pred_dwn(wn, hrpc):
     return [wn1 if hrpc1 == 0 else 1 for wn1, hrpc1 in zip(wn, hrpc)]
@@ -1044,6 +1103,91 @@ def pred_wc_old(sql_i, s_wc):
         pr_wc1.sort()#sort 可能是导致错位的罪魁祸首
 
         pr_wc.append(pr_wc1)
+    return pr_wc
+
+def guide_pred_wc(hrpc, wn, s_wc, wo, tb, l_hs, wvi, nlu_t, engine):
+    s_wc = torch.sigmoid(s_wc)
+    pr_wc = []
+    for b, wn1 in enumerate(wn):
+        nlu_t1 = nlu_t[b]
+        wvi1 = wvi[b]
+        l_hs1 = l_hs[b]
+        now_tb = tb[b]
+        s_wc1 = s_wc[b]
+        wo1 = wo[b]
+        pr_wc1 = argsort(-s_wc1.data.cpu().numpy()).tolist()
+        wc = [-1 for _ in range(wn1)]
+        if hrpc[b] == 1:
+            if 0 in wo1 or 1 in wo1:
+                for pr_wc11 in pr_wc1:
+                    if get_col_type(now_tb, pr_wc11) == 'real':
+                        wc = [pr_wc11] * wn1
+                        break
+            else:
+                wc = [pr_wc1[0]] * wn1
+                        
+        else:
+            for wn11 in range(wn1):
+                if wn11 == 0:
+                    if wo1[wn11] <= 1:
+                        for pr_wc11 in pr_wc1:
+                            if pr_wc11 >= l_hs1:
+                                continue
+                            if get_col_type(now_tb, pr_wc11) == 'real':
+                                wc[wn11] = pr_wc11
+                                break
+                    elif wo1[wn11] == 3:
+                        wc[wn11] = pr_wc1[0]
+                    else:
+                        ok = False
+                        st = wvi1[wn11][0]
+                        ed = st + wvi1[wn11][1]
+                        wv_str = single_wvi2str([st, ed], nlu_t1)
+                        for col in range(l_hs1):
+                            if engine.check_wc_wv(now_tb['id'], col, wv_str):
+                                wc[wn11] = col
+                                ok = True
+                                break
+                        if not ok:
+                            wc[wn11] = pr_wc1[0]
+                else:
+                    if wo1[wn11] <= 1:
+                        for pr_wc11 in pr_wc1:
+                            if pr_wc11 >= l_hs1:
+                                continue
+                            if pr_wc11 not in wc[:wn11] and get_col_type(now_tb, pr_wc11) == 'real':
+                                wc[wn11] = pr_wc11
+                                break
+                    elif wo1[wn11] == 3:
+                        for pr_wc11 in pr_wc1:
+                            if pr_wc11 >= l_hs1:
+                                continue
+                            if pr_wc11 not in wc[:wn11]:
+                                wc[wn11] = pr_wc11                
+                                break
+                    else:
+                        ok = False
+                        st = wvi1[wn11][0]
+                        ed = st + wvi1[wn11][1]
+                        wv_str = single_wvi2str([st, ed], nlu_t1)
+                        for col in range(l_hs1):
+                            if col not in wc[:wn11] and engine.check_wc_wv(now_tb['id'], col, wv_str):
+                                wc[wn11] = col
+                                ok = True
+                                break
+                        if not ok:
+                            for pr_wc11 in pr_wc1:
+                                if pr_wc11 >= l_hs1:
+                                    continue
+                                if pr_wc11 not in wc[:wn11]:
+                                    wc[wn11] = pr_wc11                
+                                    break
+        
+        for i in range(len(wc)):
+            if wc[i] == -1:
+                wc[i] = pr_wc1[0]
+        #print(wc)
+        pr_wc.append(wc)
     return pr_wc
 
 def pred_wc(dwn, s_wc, wn, pr_hrpc):
@@ -1072,6 +1216,27 @@ def pred_wc(dwn, s_wc, wn, pr_hrpc):
         pr_wc.append(pr_wc1)
     return pr_wc
 
+def pred_wc_without_sort(dwn, s_wc):
+    """
+    return: [ pr_wc1_i, pr_wc2_i, ...]
+    ! Returned index is sorted!
+    """
+    # get g_num
+    s_wc = torch.sigmoid(s_wc)
+    pr_wc = []
+    for b, wn1 in enumerate(dwn):
+        s_wc1 = s_wc[b]
+        
+        #print('batch id: ', b, '; swc1: ', s_wc1, '; pr_hrpc: ', pr_hrpc[b])
+
+        pr_wc1 = argsort(-s_wc1.data.cpu().numpy())[:wn1].tolist()
+        
+        
+        #print('B: pr_wc1: ', pr_wc1)
+        
+        pr_wc.append(pr_wc1)
+    return pr_wc
+
 def pred_wc_sorted_by_prob(s_wc):
     """
     return: [ pr_wc1_i, pr_wc2_i, ...]
@@ -1087,6 +1252,129 @@ def pred_wc_sorted_by_prob(s_wc):
         pr_wc1 = argsort(-s_wc1.data.cpu().numpy())
         pr_wc.append(pr_wc1.tolist())
     return pr_wc
+
+def redirect_rpc(wv_list, tb1, l_hs1, engine):
+    if len(wv_list) < 2:
+        return -1
+    col_rpc = -1
+    for col in range(l_hs1):
+        cnt = 0
+        for wv1 in wv_list:
+            if engine.check_wc_wv(tb1['id'], col, wv1):
+                cnt += 1
+        if cnt >= 2:
+            col_rpc = col
+            break
+    return col_rpc
+
+def greedy_wvi_normal(l_hs1, tb1, engine, nlu_t1, mvl, skip_dict, prob_list_h):
+    result_list = []
+    for col in prob_list_h:
+        if col >= l_hs1:
+            continue
+        for st in range(0, len(nlu_t1)):
+            for ed in range(st, min(st + mvl, len(nlu_t1))):
+                wv_str = single_wvi2str([st, ed], nlu_t1)
+                if col in skip_dict and len(skip_dict[col]) != 0:
+                    need_continue = False
+                    for wv_skip in skip_dict[col]:
+                        if wv_skip == wv_str:
+                            need_continue = True
+                            break
+                    if need_continue:
+                        continue
+                if engine.check_wc_wv(tb1['id'], col, wv_str):#wv 是否存在于 table
+                    result_list.append([col, 2, wv_str])
+                    skip_dict[col].add(wv_str)
+    #clear
+    clean_result = []
+    for res in result_list:
+        if not res[2].isdigit() and len(res[2]) == 1:
+            continue
+        clean_result.append(res)
+    #if clean_result != []:
+    #    print(clean_result)
+    return clean_result
+
+def greedy_wvi_hrpc(l_hs1, tb1, engine, nlu_t1, mvl, target, prob_list_h):
+    col_res = -1
+    str_res = []
+    wvi_res = []
+    cnt_max = 0
+    cnt_t = 0
+    str_list_t = []
+    wvi_list_t = []
+    #if '10&ZD109' in nlu_t1:
+    #    print('target: ', target)
+    
+    for stt in range(0, len(nlu_t1)):
+        for edd in range(stt, min(stt + mvl, len(nlu_t1))):
+            wv_str_t = single_wvi2str([stt, edd], nlu_t1)
+            #if '10&ZD109' in nlu_t1:
+            #    print(wv_str_t)
+            if engine.check_wc_wv(tb1['id'], target, wv_str_t):#wv 是否存在于 table
+                #if not wv_str_t.isdigit() and len(wv_str_t) == 1:
+                #    continue
+                #if '10&ZD109' in nlu_t1:
+                #    print('inside')
+                wvi_list_t.append([stt, edd])
+                str_list_t.append(wv_str_t)
+    str_list_t = list(set(str_list_t))
+    wvi_list_new_t = []
+    for cur_str in str_list_t:
+        for e in wvi_list_t:
+            if single_wvi2str(e, nlu_t1) == cur_str:
+                wvi_list_new_t.append(e)
+                break
+    wvi_list_t = wvi_list_new_t
+    #if '10&ZD109' in nlu_t1:
+    #    print('str_list_t: ', str_list_t)
+    #    print('wvi_list_t: ', wvi_list_t)
+    cnt_t = len(str_list_t)
+    if cnt_t > cnt_max:
+        cnt_max = cnt_t
+        col_res = target
+        wvi_res = wvi_list_t
+        str_res = str_list_t
+    
+    for col in prob_list_h:
+        if col >= l_hs1:
+            continue
+        cnt = 0
+        str_list = []
+        wvi_list = []
+        for st in range(0, len(nlu_t1)):
+            for ed in range(st, min(st + mvl, len(nlu_t1))):
+                wv_str = single_wvi2str([st, ed], nlu_t1)
+                #if '10&ZD109' in nlu_t1:
+                #    print(wv_str)
+                if engine.check_wc_wv(tb1['id'], col, wv_str):#wv 是否存在于 table
+                    #if '10&ZD109' == wv_str:
+                    #    print('inside')
+                    if not wv_str.isdigit() and len(wv_str) == 1:
+                        continue
+                    wvi_list.append([st, ed])
+                    str_list.append(wv_str)
+        str_list = list(set(str_list))
+        #if '10&ZD109' in nlu_t1:
+        #    print('str_list: ', str_list)
+        wvi_list_new = []
+        for cur_str in str_list:
+            for e in wvi_list:
+                if single_wvi2str(e, nlu_t1) == cur_str:
+                    wvi_list_new.append(e)
+                    break
+        wvi_list = wvi_list_new
+        #if '10&ZD109' in nlu_t1:
+        #    print('wvi_list: ', wvi_list)
+        cnt = len(str_list)
+        if cnt > cnt_max:
+            cnt_max = cnt
+            col_res = col
+            wvi_res = wvi_list
+            str_res = str_list
+    # still col_res == -1, wn = 0; col != -1 and cnt_max == 1, wn = 1; col != -1 and cnt_max >= 2, wn = cnt_max
+    return col_res, cnt_max, str_res, wvi_res
 
 
 def pred_wo(wn, s_wo):
@@ -1111,6 +1399,83 @@ def pred_wvi1(wn, s_wvi1):
         else:
             pr_wvi1.append([])
         
+    return pr_wvi1
+
+def pred_wvi1_hrpc(wn, s_wvi1, hrpc, wr, l_hs):
+    pr_wvi1 = []
+    for b, s_wvi11 in enumerate(s_wvi1):
+        if wn[b]:
+            if hrpc[b] and wr[b] == 2:
+                sub_list = []
+                for i in range(wn[b]):
+                    if i == 0:
+                        sub_list.append(s_wvi11[0].argmax().item())
+                    else:
+                        prob_list = argsort(-s_wvi11[i].data.cpu().numpy())
+                        ok = False
+                        for e in prob_list:
+                            if e >= l_hs[b]:
+                                continue
+                            if e not in sub_list[:i]:
+                                sub_list.append(e)
+                                
+                                ok = True
+                                break
+                            print(e)
+                        if not ok:
+                            sub_list.append(s_wvi11[i].argmax().item())
+                pr_wvi1.append(sub_list)
+            else:
+                pr_wvi1.append([e.argmax().item() for e in s_wvi11[:wn[b]]])
+        else:
+            pr_wvi1.append([])
+            
+    return pr_wvi1
+
+def guide_pred_wvi1(wn, wc, s_wvi1, tb, nlu_t):
+    pr_wvi1 = []
+    for b, s_wvi11 in enumerate(s_wvi1):
+        now_tb = tb[b]
+        now_nlu_t = nlu_t[b]
+        if wn[b]:
+            sub_result = [-1 for _ in range(wn[b])]
+            for wn11 in range(wn[b]):
+                wc11 = wc[b][wn11]
+                pr_wvi111 = argsort(-s_wvi11[wn11].data.cpu().numpy()).tolist()
+                if get_col_type(now_tb, wc11) == 'real':
+                    for houxuan_wvi in pr_wvi111:
+                        wv_str = single_wvi2str([houxuan_wvi, houxuan_wvi], now_nlu_t)
+                        if check_is_digits_without_head(wv_str):
+                            sub_result[wn11] = houxuan_wvi
+                            break
+                else:
+                    sub_result[wn11] = pr_wvi111[0]
+                if sub_result[wn11] == -1:
+                    sub_result[wn11] = pr_wvi111[0]
+            pr_wvi1.append(sub_result)
+        else:
+            pr_wvi1.append([])
+            
+    return pr_wvi1
+
+def same_wo_hrpc_pred_wvi1(wn, s_wvi1):
+    pr_wvi1 = []
+    for b, s_wvi11 in enumerate(s_wvi1):
+        if wn[b]:
+            myDict = defaultdict(int)
+            for wn1 in range(wn[b]):
+                k = argsort(-s_wvi11[wn1].data.cpu().numpy()).tolist()
+                k = k[:wn[b]]
+                for ik in k:
+                    myDict[ik] += 1
+            pairs = [[key, myDict[key]] for key in myDict]
+            pairs.sort(key=lambda x: x[1], reverse=True)
+            pairs = pairs[:wn[b]]
+            single = [pair[0] for pair in pairs]
+            single.sort()
+            pr_wvi1.append(single)
+        else:
+            pr_wvi1.append([])
     return pr_wvi1
 
 def full_matrix(m, max_wn=4):
@@ -1155,9 +1520,15 @@ def pred_wvi_se(wn, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
 
     return pr_wvi
 
-def pred_wvi_se_beam(max_wn, s_wv, beam_size):
+def length2end(pr_wvi):
+    for ib in range(len(pr_wvi)):
+        for wn in range(len(pr_wvi[0])):
+            pr_wvi[ib][wn][1] += pr_wvi[ib][wn][0]
+    return pr_wvi
+
+def pred_wvi_se_beam(max_wn, s_wv1, s_wv3, beam_size, mvl, l_token):
     """
-    s_wv: [B, 4, mL, 2]
+    s_wv: [B, 4, mL]
     - predict best st-idx & ed-idx
 
 
@@ -1165,54 +1536,47 @@ def pred_wvi_se_beam(max_wn, s_wv, beam_size):
     pr_wvi_beam = [B, max_wn, n_pairs, 2]. 2 means [st, ed].
     prob_wvi_beam = [B, max_wn, n_pairs]
     """
-    bS = s_wv.shape[0]
-
-    s_wv_st, s_wv_ed = s_wv.split(1, dim=3)  # [B, 4, mL, 2] -> [B, 4, mL, 1], [B, 4, mL, 1]
-
-    s_wv_st = s_wv_st.squeeze(3) # [B, 4, mL, 1] -> [B, 4, mL]
-    s_wv_ed = s_wv_ed.squeeze(3)
-
-    prob_wv_st = F.softmax(s_wv_st, dim=-1).detach().to('cpu').numpy()
-    prob_wv_ed = F.softmax(s_wv_ed, dim=-1).detach().to('cpu').numpy()
+    bS = s_wv1.shape[0]
+    
+    p1 = F.softmax(s_wv1, dim=2).detach().to('cpu').numpy()
+    p3 = F.softmax(s_wv3, dim=2).detach().to('cpu').numpy()
 
     k_logit = int(ceil(sqrt(beam_size)))
     n_pairs = k_logit**2
     assert n_pairs >= beam_size
-    values_st, idxs_st = s_wv_st.topk(k_logit) # [B, 4, mL] -> [B, 4, k_logit]
-    values_ed, idxs_ed = s_wv_ed.topk(k_logit) # [B, 4, mL] -> [B, 4, k_logit]
+    range_list = []
+    for ib in range(p1.shape[0]):
+        range_list1 = []
+        for n in range(p1.shape[1]):
+            min_st = min(argsort(-p1[ib][n])[:n_pairs].tolist())
+            max_ed = max(argsort(-p3[ib][n])[:n_pairs].tolist())
+            #range_list1.append([min_st, max(max_ed, min_st + (mvl - 1))])#有可能要改为+mvl
+            range_list1.append([0, l_token[ib] - 1])
+        range_list.append(range_list1)
 
-    # idxs = [B, k_logit, 2]
-    # Generate all possible combination of st, ed indices & prob
-    pr_wvi_beam = [] # [B, max_wn, k_logit**2 [st, ed] paris]
-    prob_wvi_beam = zeros([bS, max_wn, n_pairs])
-    for b in range(bS):
-        pr_wvi_beam1 = []
+    return range_list#[b, wn, 2]
 
-        idxs_st1 = idxs_st[b]
-        idxs_ed1 = idxs_ed[b]
-        for i_wn in range(max_wn):
-            idxs_st11 = idxs_st1[i_wn]
-            idxs_ed11 = idxs_ed1[i_wn]
+def check_conds_wv_last_not_same(conds, new_wv, nlu_t1):#注意这里是wv而不是wvi
+    pre_wvi_list = [conds1[2].strip() for conds1 in conds]
+    return new_wv not in pre_wvi_list
 
-            pr_wvi_beam11 = []
-            pair_idx = -1
-            for i_k in range(k_logit):
-                for j_k in range(k_logit):
-                    pair_idx += 1
-                    st = idxs_st11[i_k].item()
-                    ed = idxs_ed11[j_k].item()
-                    pr_wvi_beam11.append([st, ed])
+def check_is_digits_without_head(wv_string):
+    wv_string = wv_string.strip()
+    if len(wv_string) == 0 or not wv_string[0].isdigit():
+        return False
+    wv_string_list = wv_string.strip().split('.')
+    if wv_string_list[0][0] == '-':
+        wv_string_list[0] = wv_string_list[0][1:]
+    return True if all([component.isdigit() for component in wv_string_list]) else False
 
-                    p1 = prob_wv_st[b, i_wn, st]
-                    p2 = prob_wv_ed[b, i_wn, ed]
-                    prob_wvi_beam[b, i_wn, pair_idx] = p1*p2
-            pr_wvi_beam1.append(pr_wvi_beam11)
-        pr_wvi_beam.append(pr_wvi_beam1)
-
-
-    # prob
-
-    return pr_wvi_beam, prob_wvi_beam
+def check_is_digits(wv_string):
+    wv_string = wv_string.strip()
+    if len(wv_string) == 0 or not wv_string[0].isdigit():
+        return False
+    wv_string_list = wv_string.strip().split('.')
+    if wv_string_list[0][0] == '-':
+        wv_string_list[0] = wv_string_list[0][1:]
+    return True if all([component.isdigit() for component in wv_string_list]) and not (len(wv_string_list) == 1 and wv_string_list[0][0] == '0') else False#如果没有小数点的情况下，不能以0开头
 
 def is_whitespace_g_wvi(c):
     # if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
@@ -1255,8 +1619,22 @@ def convert_pr_wvi_to_string(pr_wvi, nlu_t, nlu_wp_t, wp_to_wh_index):
 
     return pr_wv_str, pr_wv_str_wp
 
+def single_wvi2str(wvi1, nlu_t1):
+    #print('wvi1 is: ', wvi1) 这个是st 和 ed
+    return (''.join(nlu_t1[wvi1[0] : wvi1[1] + 1])).strip()
 
+def caculate_std(wvi, target):
+    return pow(wvi[0] - target[0], 2) + pow(wvi[1] - target[1], 2)
 
+def find_std_min(wvi_list, target_wvi):
+    min_std = caculate_std(wvi_list[0], target_wvi)
+    min_idx = 0
+    for i in range(1, len(wvi_list)):
+        cur_std = caculate_std(wvi_list[i], target_wvi)
+        if cur_std < min_std:
+            min_std = cur_std
+            min_idx = i
+    return min_idx
 
 def pred_sw_se(s_sn, s_sc, s_sa, s_wn, s_wr, s_hrpc, s_wc, s_wo, s_wv1, s_wv2, s_wv3, s_wv4, mvl):
     pr_sn = pred_sn(s_sn)
@@ -1663,6 +2041,8 @@ def get_cnt_wvi_list(g_wn, g_wc, g_wvi, pr_wvi, mode):
     return cnt_list
 
 
+
+
 def get_cnt_wv_list(g_wn, g_wc, g_sql_i, pr_sql_i, g_wvi, pr_wvi, mode):
     """ usalbe only when g_wc was used to find pr_wv
     """
@@ -1830,7 +2210,7 @@ def generate_sql_i(pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv_str, nlu):
     return pr_sql_i
 
 
-def save_for_evaluation(path_save, results, dset_name, ):
+def save_for_evaluation(path_save, results, dset_name):
     path_save_file = os.path.join(path_save, f'results_{dset_name}.json')
     with open(path_save_file, 'w', encoding='utf-8') as f:
         for i, r1 in enumerate(results):
@@ -1839,7 +2219,7 @@ def save_for_evaluation(path_save, results, dset_name, ):
 
             f.writelines(json_str)
 
-def save_for_evaluation_aux(path_save, results, dset_name, ):
+def save_for_evaluation_aux(path_save, results, dset_name):
     path_save_file = os.path.join(path_save, f'results_aux_{dset_name}.json')
     with open(path_save_file, 'w', encoding='utf-8') as f:
         for i, r1 in enumerate(results):
@@ -1848,30 +2228,65 @@ def save_for_evaluation_aux(path_save, results, dset_name, ):
 
             f.writelines(json_str)
 
+def get_next_large_index(arr_origin, cur):
+    arr = list(arr_origin) if type(arr_origin) != type([]) else arr_origin
+    if min(arr) != arr[cur]:
+        prob_list = []
+        value_list = []
+        for i, e in enumerate(arr):
+            if e < arr[cur]:
+                prob_list.append(i)
+                value_list.append(e)
+        min_value = min(value_list)
+        for i, e in enumerate(value_list):
+            if e == min_value:
+                return prob_list[i]
+    return None
 
-def check_sc_sa_pairs(tb, pr_sc, pr_sa, ):
+def get_col_type(tb, col):
+    return tb['types'][col]
+
+def get_max_sca_correct(tb, col, sa_prob):
+    col_type = tb['types'][col]
+    idx = sa_prob.argmax().item()
+    if col_type == 'text':
+        while idx != 0 and idx != 4:#只能是空或者count
+            idx = get_next_large_index(sa_prob, idx)#一定有结果
+    return idx
+
+def get_max_wco_correct(tb, col, wo_prob):
+    col_type = tb['types'][col]
+    idx = wo_prob.argmax().item()
+    if col_type == 'text':
+        while idx != 2 and idx != 3:#只能是等于或者不等于
+            idx = get_next_large_index(wo_prob, idx)
+    return idx
+
+def check_sc_sa_pairs(tb, pr_sc, pr_sa):
     """
     Check whether pr_sc, pr_sa are allowed pairs or not.
     agg_ops = ['', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
 
     """
     bS = len(pr_sc)
-    check = [False] * bS
+    sn = len(pr_sc[0])
+    check = [[False] * sn] * bS
     for b, pr_sc1 in enumerate(pr_sc):
-        pr_sa1 = pr_sa[b]
-        hd_types1 = tb[b]['types']
-        hd_types11 = hd_types1[pr_sc1]
-        if hd_types11 == 'text':
-            if pr_sa1 == 0 or pr_sa1 == 3: # ''
-                check[b] = True
+        for n, pr_sc11 in enumerate(pr_sc1):
+            pr_sa1 = pr_sa[b][n]
+            hd_types1 = tb[b]['types']
+            hd_types11 = hd_types1[pr_sc11]
+            if hd_types11 == 'text':
+                if pr_sa1 == 0 or pr_sa1 == 4: # ''和COUNT
+                    check[b][n] = True
+                else:
+                    check[b][n] = False
+
+            elif hd_types11 == 'real':
+                check[b][n] = True
             else:
-                check[b] = False
-
-        elif hd_types11 == 'real':
-            check[b] = True
-        else:
-            raise Exception("New TYPE!!")
-
+                raise Exception("New TYPE!!")
+                
     return check
 
 
@@ -1884,6 +2299,31 @@ def remap_sc_idx(idxs, pr_sc_beam):
 
     return idxs
 
+def generate_pr(pr_sql_i):
+    pr_sn = []#
+    pr_sc = []#
+    pr_sa = []#
+    pr_wn = []#
+    pr_wr = []#
+    pr_wc = []#
+    pr_wo = []#
+    pr_wv = []#
+    
+    for b, pr_sql_i1 in enumerate(pr_sql_i):
+        rela = pr_sql_i1['cond_conn_op']
+        sel = pr_sql_i1['sel']
+        agg = pr_sql_i1['agg']
+        conds = pr_sql_i1["conds"]
+        pr_wr.append(rela)
+        pr_sn.append(len(sel))
+        pr_wn.append(len(conds))
+        pr_sc.append(sel)
+        pr_sa.append(agg)
+        pr_wc.append([cond[0] for cond in conds])
+        pr_wo.append([cond[1] for cond in conds])
+        pr_wv.append([cond[2] for cond in conds])
+        
+    return pr_sn, pr_sc, pr_sa, pr_wn, pr_wr, pr_wc, pr_wo, pr_wv
 
 def sort_and_generate_pr_w(pr_sql_i):
     pr_wc = []

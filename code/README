@@ -1,0 +1,24 @@
+1. 深度学习框架:
+    1) pytorch
+2. 运行环境:
+    1) python 3.6.5
+    2) pytorch 1.1.0
+    3) CUDNN 7
+    4) CUDA 9.0
+3. 依赖包:
+    pytorch_pretrained_bert 0.6.2
+    ujson 1.35
+    tqdm 4.23.4
+    PyNLPIR 0.5.2
+    pkuseg 0.0.22
+    records 0.5.2
+4. 依赖包安装命令:
+    pip install pytorch_pretrained_bert
+    pip install records==0.5.2
+    pip install ujson
+    pip install pynlpir
+    pynlpir update
+    pip install pkuseg
+5. 文件说明:
+    训练文件：train.py 执行脚本(train.sh)
+    推理文件：generate_result.py 执行脚本(predict.sh)

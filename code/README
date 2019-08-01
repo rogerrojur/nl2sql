@@ -19,6 +19,7 @@
     pip install pynlpir
     pynlpir update
     pip install pkuseg
+    pip install ordered_set
 5. 文件说明:
     训练文件：train.py 执行脚本(train.sh)
     推理文件：generate_result.py 执行脚本(predict.sh)

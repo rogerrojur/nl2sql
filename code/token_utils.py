@@ -744,7 +744,7 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
 
 
 words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', '企鹅公司':'腾讯公司',
-            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京，上海，广州','北上':'北京和上海',
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
@@ -753,6 +753,7 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
             '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下':'青铜器辨伪三百例上和青铜器辨伪三百例下',
             '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾','建行':'建设银行','蜂制品':'蜂产品',
+            '去年':'2018年','幺':'一','二零':'',
             '不好意思，':'', '请问一下':'', '请问':'', '打扰一下，':'',
             '你好，':'', '你好':'', '你知道':'',  
             # '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
@@ -1048,6 +1049,8 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             # 对于常见字符单独处理
             if tmp_str in ['本书'] and single_word.startswith(tmp_str):
                 continue
+            if tmp_str in ['城市','房地产'] and single_word.endswith(tmp_str):
+                continue
             # 当我们找到一个唯一的匹配时，还要加一个限制条件，即tmp_str和single_word差异太大时忽略改变
             # 徐伟水泥制品厂 徐伟 0.5
             # 可能需要针对train进行单独处理，毕竟train的val很少
@@ -1131,6 +1134,7 @@ def _process_time(token_list, table_words, conds_value):
             # 16/年；
             if len(last_token) == 2 and str.isdigit(last_token):
                 new_list[-1] = '20' + last_token    # 假设是20xx年，待定
+                new_list.append('年')
                 continue
         if token not in words:
             # 一六年；一二年
@@ -1248,11 +1252,22 @@ def _read_common_words(fname):
     return common_words
 
 
+words_remove = set(['就是'])
+def _remove_common_words(new_list):
+    """去除一些常用词，不会影响语意的"""
+    for i in range(len(new_list)):
+        if new_list[i] in words_remove:
+            new_list[i] = ''
+    return new_list
+
+
 # dic中的词
 common_words = _read_common_words('./dic.txt')
 def common_words_agg(token_list):
     # 'train' 或者 'test' 都可以的
     new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
+
+    new_list = _remove_common_words(new_list)
 
     new_list = remove_null(new_list)
     return new_list
@@ -1438,7 +1453,7 @@ def annotate_example_nlpir(example, table, split):
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # 不匹配的wvi不冲突
         # 这个变量表示，如果需要插入wv
-        insert_wv = True
+        insert_wv = False
         if insert_wv and split == 'train':
             unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
             if unmatch_set:
@@ -1690,16 +1705,19 @@ def _read_dic(fname):
     return synonyms_dic
 
 
-def _is_reasonable(s):
+def _is_reasonable(s, ignore_digit=True):
     """去掉table_content中不符合条件的词，包括数字和单字"""
     if len(s) > 50:
         return False
     if len(s) == 1 and s not in '0123456789':
         return False
-    for c in s:
-        if c not in '0123456789-.':
-            return True
-    return False
+    if ignore_digit:
+        for c in s:
+            if c not in '0123456789-.':
+                return True
+        return False
+    else:
+        return True
 
 
 def _generate_wv_pos_each(table):
@@ -1715,11 +1733,25 @@ def _generate_wv_pos_each(table):
     content_index = []
     row_num, col_num = len(table['rows']), len(table['rows'][0])
     headers = [str(h) for h in table['header']]
+
+    # 先判断最后得到的表是否为空, 如果为空则把数字全部加入
+    ignore_digit = True
+    table_content_null = True
+    for c in range(col_num):
+        for r in range(row_num):
+            sv = str(table['rows'][r][c])
+            if _is_reasonable(sv, ignore_digit=True):
+                table_content_null = True
+                break
+    if table_content_null:
+        ignore_digit = False
+
+
     # 生成table的table_content属性，从上到下，从左到右
     for c in range(col_num):
         for r in range(row_num):
             sv = str(table['rows'][r][c])
-            if _is_reasonable(sv):
+            if _is_reasonable(sv, ignore_digit):
                 table_content.add(sv)
 
     # 字典content_ix_dic：每个value对应的index
@@ -1733,7 +1765,7 @@ def _generate_wv_pos_each(table):
     for c in range(col_num):
         for r in range(row_num):
             sv = str(table['rows'][r][c])
-            if _is_reasonable(sv):
+            if _is_reasonable(sv, ignore_digit):
                 ix = content_ix_dic[sv]     # 获取这个content在`table_content`中的位置
                 content_header[ix].add(headers[c])
                 content_index[ix].add(c)

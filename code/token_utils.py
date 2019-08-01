@@ -9,6 +9,9 @@ from tqdm import tqdm
 import copy
 import re
 
+from ordered_set import OrderedSet
+from collections import OrderedDict
+
 import itertools
 
 import difflib
@@ -17,6 +20,8 @@ import pynlpir as pr
 pr.open()
 import pkuseg
 seg = pkuseg.pkuseg()
+
+import jieba
 
 import http.client
 import hashlib
@@ -749,13 +754,15 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下':'青铜器辨伪三百例上和青铜器辨伪三百例下',
             '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾','建行':'建设银行','蜂制品':'蜂产品',
             '不好意思，':'', '请问一下':'', '请问':'', '打扰一下，':'',
-            '你好，':'', '你好':'', '你知道':'',  '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
-            '你给说说':'','你给我说说':'','能给我查一下':'',
-            '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
-            '帮我看一下':'', '我想咨询一下':'', '我想了解':'', '能帮我查询一下':'', '我想查一下':'','我只想知道':'',
-            '我只想了解一下':'', '我只想查一下':'', '我只想咨询一下':'', '我问问':'', '帮我查查':'', '我想查查':'',
-            '想要了解一下':'', '想了解一下':'', '想咨询一下':'', '想问一下':'', '想要了解':'', '想了解':'','能说一下':'','能介绍一下':'', 
-            '想要':'', '查下':'', '就是':'', '麻烦':''}
+            '你好，':'', '你好':'', '你知道':'',  
+            # '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
+            # '你给说说':'','你给我说说':'','能给我查一下':'','你能给我':'','你给我':'',
+            # '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
+            # '帮我看一下':'', '我想咨询一下':'', '我想了解':'', '能帮我查询一下':'', '我想查一下':'','我只想知道':'',
+            # '我只想了解一下':'', '我只想查一下':'', '我只想咨询一下':'', '我问问':'', '帮我查查':'', '我想查查':'',
+            # '想要了解一下':'', '想了解一下':'', '想咨询一下':'', '想问一下':'', '想要了解':'', '想了解':'','能说一下':'','能介绍一下':'', 
+            # '想要':'', '查下':'', '就是':'', '麻烦':''
+            }
 
 
 def is_valid_char(uchar):
@@ -1219,6 +1226,38 @@ def special_patten_agg(token_list, table_words, conds_value):
     return new_list
 
 
+def _read_common_words(fname):
+    """Read dict file dic.txt"""
+    common_words = set()
+    with open(fname, encoding='utf8') as fs:
+        for line in fs:
+            if line.startswith('#') or line.strip() == '':
+                continue
+            if line.find(':') == -1:
+                words = line.strip().split()
+                for word in words:
+                    common_words.add(word.strip())
+            else:
+                words = line.strip().split(':')
+                common_words.add(words[0])
+                common_words.add(words[1])
+
+    common_words = sorted(list(common_words), key=lambda x : -len(x))
+    common_words = [word for word in common_words if len(word) > 1]
+
+    return common_words
+
+
+# dic中的词
+common_words = _read_common_words('./dic.txt')
+def common_words_agg(token_list):
+    # 'train' 或者 'test' 都可以的
+    new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
+
+    new_list = remove_null(new_list)
+    return new_list
+
+
 def post_process(token_list):
     # 将1990-2500的数字尾数0去掉，比如2016.0 -> 2016
     for ix, token in enumerate(token_list):
@@ -1285,15 +1324,19 @@ def get_row_in_table(cond, rows):
 
 
 def check_wv_in_table(table, conds, split):
-    """对每个cond，将其在table中的位置(行1, 行2)放到一个列表"""
+    """wv_pos中的每个值表示`table_content中的一个值的index`"""
     if split == 'test':
         return None
 
-    wv_pos = []
+    wv_poses = []
     for cond in conds:
-        wv_row_list = get_row_in_table(cond, table['rows'])
-        wv_pos.append(wv_row_list)  # 如果没有返回空列表
-    return wv_pos
+        table_content = table['table_content']
+        wv_pos = -1
+        for ix, v in enumerate(table_content):
+            if v == str(cond[2]):
+                wv_pos = ix
+        wv_poses.append(wv_pos)
+    return wv_poses
 
 
 useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已'}
@@ -1343,8 +1386,8 @@ def annotate_example_nlpir(example, table, split):
     # 分别使用中科大的和北大的分词系统进行分词
     _nlu_ann_pr = pr.segment(example['question'],  pos_tagging=False)
     _nlu_ann_pk = seg.cut(example['question'])
-    # _nlu_ann_jb = list(jieba.cut_for_search(example['question']))
     _nlu_ann_jb = None
+    # big_tokens = list(jieba.cut(example['question']))
 
     # 综合 北大 分词和 pynlpir 分词的结果，二者取短, 分出来的词会比较细粒度
     _nlu_ann = seg_summary(example['question'], _nlu_ann_pr, _nlu_ann_pk, _nlu_ann_jb)
@@ -1367,6 +1410,8 @@ def annotate_example_nlpir(example, table, split):
     # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理\
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
 
+    # 将常用词进行聚合，如一下 哪个
+    processed_nlu_token_list = common_words_agg(processed_nlu_token_list)
     ##TODO：是不是要进行特殊的change处理，再来一轮full match和part match？？
     # 主要处理 时间(年份，月份)，数字(亿，万)
     processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
@@ -1644,6 +1689,66 @@ def _read_dic(fname):
 
     return synonyms_dic
 
+
+def _is_reasonable(s):
+    """去掉table_content中不符合条件的词，包括数字和单字"""
+    if len(s) > 50:
+        return False
+    if len(s) == 1 and s not in '0123456789':
+        return False
+    for c in s:
+        if c not in '0123456789-.':
+            return True
+    return False
+
+
+def _generate_wv_pos_each(table):
+    """
+    为table生成三个新的属性，依次为table_content, content_header, content_index
+    依次取第一列，第二列，...， 不重复生成一个单列表
+    Parameters:
+        content_header: 表示每个content对应的header
+        contnet_index: 表示每个content对应在table_content中的列数
+    """
+    table_content = OrderedSet()
+    content_header = []
+    content_index = []
+    row_num, col_num = len(table['rows']), len(table['rows'][0])
+    headers = [str(h) for h in table['header']]
+    # 生成table的table_content属性，从上到下，从左到右
+    for c in range(col_num):
+        for r in range(row_num):
+            sv = str(table['rows'][r][c])
+            if _is_reasonable(sv):
+                table_content.add(sv)
+
+    # 字典content_ix_dic：每个value对应的index
+    content_ix_dic = {}
+    table_content = list(table_content)
+    for ix, content in enumerate(table_content):
+        content_ix_dic[content] = ix
+        content_header.append(OrderedSet())
+        content_index.append(OrderedSet())
+
+    for c in range(col_num):
+        for r in range(row_num):
+            sv = str(table['rows'][r][c])
+            if _is_reasonable(sv):
+                ix = content_ix_dic[sv]     # 获取这个content在`table_content`中的位置
+                content_header[ix].add(headers[c])
+                content_index[ix].add(c)
+    for ix in range(len(table_content)):
+        content_header[ix] = list(content_header[ix])
+        content_index[ix] = list(content_index[ix])
+
+    # 生成三个属性
+    table['table_content'] = table_content
+    table['content_header'] = content_header
+    table['content_index'] = content_index
+
+    return table
+
+
 # 定义接口函数
 def token_train_val(base_path='./wikisql/data/tianchi/'):
     """
@@ -1654,19 +1759,22 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
     synonyms_dic = _read_dic('./dic.txt')
     # the tokened file of test is used to debug.
     for split in ['train', 'val','test']:
-        fsplit = os.path.join(base_path, split) + '.json'
-        ftable = os.path.join(base_path, split) + '.tables.json'
-        fout = os.path.join(base_path, split) + '_tok.json'
+        fsplit = os.path.join(base_path, split, split) + '.json'
+        ftable = os.path.join(base_path, split, split) + '.tables.json'
+        ftable_new = os.path.join(base_path, split, split) + '_new.tables.json'
+        fout = os.path.join(base_path, split, split) + '_tok.json'
 
         print('tokening {}'.format(fsplit))
-        with open(fsplit, encoding='utf8') as fs, open(ftable, encoding='utf8') as ft, open(fout, 'wt', encoding='utf8') as fo:
+        with open(fsplit, encoding='utf8') as fs, open(ftable, encoding='utf8') as ft, open(fout, 'wt', encoding='utf8') as fo, open(ftable_new, 'wt', encoding='utf8') as fto:
             print('loading tables')
 
             # ws: Construct table dict with table_id as a key.
             tables = {}
             for line in tqdm(ft, total=count_lines(ftable)):
                 d = json.loads(line)
+                d = _generate_wv_pos_each(d)    # 对table生成三个新的属性
                 tables[d['id']] = d
+                fto.write(json.dumps(d, ensure_ascii=False) + '\n')
             print('loading examples')
             n_written = 0
             mvl_bigger_2 = mvl_none = 0
@@ -1705,7 +1813,7 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
             print('drop %d(%.3f) examples where mvl is None' % (mvl_none, mvl_none/cnt))
 
 
-# 定义接口函数
+# 定义接口函数,在线时使用，不会生成中间文件
 def token_each(record, table, split):
     """
     Token each record in the `split` dataset.
@@ -1717,6 +1825,7 @@ def token_each(record, table, split):
     Return:
         the tokened record for the input record
     """
+    table = _generate_wv_pos_each(table)    # 为table生成三个新的属性
     ann, table_words = annotate_example_nlpir(record, table, split)
     if split != 'test':
         mvl = get_mvl(ann)

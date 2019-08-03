@@ -486,6 +486,7 @@ class Seq2SQL_v1(nn.Module):
             pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
             if not engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], new_conds, rela):
                 still_error += 1
+                '''
                 #------------------------adjust wop-------------------------------
                 cur_conds = new_conds
                 dayu_before = ['多于','大于','高于','超过','超出','突破','不低于','不小于','占比过','达到','超','破']
@@ -521,6 +522,7 @@ class Seq2SQL_v1(nn.Module):
                 new_conds = cur_conds
                 pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
                 #------------------------adjust wop-------------------------------
+                '''
         return pr_sql_list, exe_error, still_error
 
 class SNP(nn.Module):

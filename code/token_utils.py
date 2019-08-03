@@ -215,6 +215,7 @@ def check_wv_in_nlu_tok(wv_str_list, nlu_t1):
 
     return g_wvi1_corenlp, stage
 
+
 def is_all_number_word(s):
     if not s:
         return False
@@ -1291,33 +1292,6 @@ def table_words_filter(table_words):
     return set(tmp_list)
 
 
-def post_process_for_train(record, wv_list, split):
-    if split != 'train' or record['wvi_corenlp'] == None:
-        return record
-    question_tok = record['question_tok']
-    for i, cond in enumerate(record['sql']['conds']):
-        wvi = record['wvi_corenlp'][i]
-        pred_val = ''.join(question_tok[wvi[0]: wvi[1]+1])
-        if cond[2] == pred_val and wvi[1] - wvi[0] <= 1:
-            pass
-        else:
-            question_tok[wvi[0]] = cond[2]
-            for tx in range(wvi[0]+1, wvi[1]+1):
-                question_tok[tx] = ''
-
-    question_tok = remove_null(question_tok)
-    record['question_tok'] = question_tok
-    # 重新确定wv的位置
-    try:
-        wvi1_corenlp, state = check_wv_in_nlu_tok(wv_list, question_tok)
-        record['wvi_corenlp'] = wvi1_corenlp
-        record['stage'] = state
-    except:
-        record['wvi_corenlp'] = None
-        record['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
-    return record
-
-
 def get_row_in_table(cond, rows):
     """
     函数: 对于每个wv，获取位置列表(row number, column number)
@@ -1427,7 +1401,7 @@ def annotate_example_nlpir(example, table, split):
     # 获取table中的words
     table_words = get_table_words(table)
     # 获取table header中的words
-    # header_words = get_header_words(table)
+    header_words = get_header_words(table)
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
@@ -1493,10 +1467,6 @@ def annotate_example_nlpir(example, table, split):
     except:
         ann['wvi_corenlp'] = None
         ann['tok_error'] = 'SQuAD style st, ed are not found under CoreNLP.'
-
-    # 对于没有完全匹配的数据，进一步处理，将wv值替换到wvi的指定位置。
-    # 选择是否插入
-    # ann = post_process_for_train(ann, wv_ann1, split)
 
     # 增加一个属性，对每个wv，将其在table中的位置(行1, 行2)放到一个列表
     wv_pos = check_wv_in_table(table, ann['sql']['conds'], split)

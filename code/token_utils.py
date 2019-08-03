@@ -1453,7 +1453,7 @@ def annotate_example_nlpir(example, table, split):
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
         # 不匹配的wvi不冲突
         # 这个变量表示，如果需要插入wv
-        insert_wv = False
+        insert_wv = True
         if insert_wv and split == 'train':
             unmatch_set = get_unmatch_set(processed_nlu_token_list, wv_ann1, wvi1_corenlp)
             if unmatch_set:
@@ -1782,13 +1782,13 @@ def _generate_wv_pos_each(table):
 
 
 # 定义接口函数
+synonyms_dic = _read_dic('./dic.txt')
 def token_train_val(base_path='./wikisql/data/tianchi/'):
     """
     生成train和val的token文件
     Parameters:
         base_path: 基本路径
     """
-    synonyms_dic = _read_dic('./dic.txt')
     # the tokened file of test is used to debug.
     for split in ['train', 'val','test']:
         fsplit = os.path.join(base_path, split, split) + '.json'
@@ -1845,6 +1845,23 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
             print('drop %d(%.3f) examples where mvl is None' % (mvl_none, mvl_none/cnt))
 
 
+def remove_crap(ann):
+    """去除废话产生新的增广数据"""
+    return ann
+
+
+def record_broaden(ann, table_words, synonyms_dic, repeat=0):
+    results = [ann]
+    # 近义词替换来产生
+    syn_results = synonyms_replace(ann, table_words, synonyms_dic, repeat-1)
+    results.extend(syn_results)
+
+    # 去除废话来产生
+    crap_result = remove_crap(ann)
+    results.append(crap_result)
+    return results
+
+
 # 定义接口函数,在线时使用，不会生成中间文件
 def token_each(record, table, split):
     """
@@ -1859,9 +1876,12 @@ def token_each(record, table, split):
     """
     table = _generate_wv_pos_each(table)    # 为table生成三个新的属性
     ann, table_words = annotate_example_nlpir(record, table, split)
+
+    results = record_broaden(ann, table_words, synonyms_dic, repeat=0)
+
     if split != 'test':
         mvl = get_mvl(ann)
         # 如果token error或者mvl大于2表示不符合条件，返回None值，只针对train和val
         if mvl > 2 or mvl == -1:
-            return None
-    return ann
+            return []
+    return results

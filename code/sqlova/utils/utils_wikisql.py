@@ -77,9 +77,9 @@ def load_wikisql_data(path_wikisql, mode='train', toy_model=False, toy_size=10, 
             t1 = json.loads(line.strip())
             # 整合token函数，直接对train/val/test.json中的record进行token后加入data，再构造dataloader
             # None表示token产生的句子不符合条件，只针对train和val
-            t1 = token_utils.token_each(t1, table[t1['table_id']], mode)
-            if t1 != None:
-                data.append(t1)
+            t1_l = token_utils.token_each(t1, table[t1['table_id']], mode)
+            if t1_l:
+                data.extend(t1_l)
 
     return data, table
 

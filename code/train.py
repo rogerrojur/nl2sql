@@ -1,7 +1,7 @@
 # nl2sql
 # 2019.7.31
 
-#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode train --token 0 --EG
+#execute : python train.py --seed 1 --bS 4 --accumulate_gradients 2 --bert_type_abb zhS --fine_tune --lr 0.001 --lr_bert 0.00001 --max_seq_leng 400 --mode train --token 0 --tepoch 2 --EG --trained
 from pytorch_pretrained_bert import BertModel, BertTokenizer
 
 import numpy as np
@@ -64,6 +64,10 @@ def construct_hyper_param(parser):
                         help="0: token, 1: no token")
     parser.add_argument("--mode", default='train', type=str,
                         help="train or val mode to be used.")
+    parser.add_argument('--trained',
+                        default=False,
+                        action='store_true',
+                        help="If present, use the existing model.")
     parser.add_argument("--accumulate_gradients", default=1, type=int,
                         help="The number of accumulation of backpropagation to effectivly increase the batch size.")
     parser.add_argument('--fine_tune',
@@ -794,13 +798,13 @@ if __name__ == '__main__':
     path_save_for_evaluation = './result/'
 
     if args.token == 1:
-        print('tokening and train/val.')
+        print('Tokening and then train or val.')
         token_utils.token_train_val(base_path=path_wikisql)
         print('tokening over...\ntraining...')
     elif args.token == 0:
         print('args.token == 1, token skipped, train/val only.')
     else:
-        print('do nothing other than tokening.')
+        print('Do nothing other than tokening.')
         token_utils.token_train_val(base_path=path_wikisql)
         sys.exit(0)
     ## 3. Load data
@@ -813,7 +817,6 @@ if __name__ == '__main__':
     print("dev_data: ", len(dev_data))
     print("dev_table: ", len(dev_table))
     
-
     # test_data, test_table = load_wikisql_data(path_wikisql, mode='test', toy_model=args.toy_model, toy_size=args.toy_size, no_hs_tok=True)
     # test_loader = torch.utils.data.DataLoader(
     #     batch_size=args.bS,
@@ -822,14 +825,17 @@ if __name__ == '__main__':
     #     num_workers=4,
     #     collate_fn=lambda x: x  # now dictionary values are not merged!
     # )
-    ## 4. Build & Load models
-    # model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH)
-
-    ## 4.1.
-    # To start from the pre-trained models, un-comment following lines.
-    path_model_bert = '../model/model_bert_best.pt'
-    path_model = '../model/model_best.pt'
-    model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
+    if not args.trained:
+        ## 4. Build & Load models
+        print('Train the model from the begining.')
+        model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH)
+    else:
+        ## 4.1.
+        # To start from the pre-trained models, un-comment following lines.
+        print('loading the pretrained model.')
+        path_model_bert = '../model/model_bert_best.pt'
+        path_model = '../model/model_best.pt'
+        model, model_bert, tokenizer, bert_config = get_models(args, BERT_PT_PATH, trained=True, path_model_bert=path_model_bert, path_model=path_model)
 
     ## 5. Get optimizers
     opt, opt_bert = get_opt(model, model_bert, args.fine_tune)

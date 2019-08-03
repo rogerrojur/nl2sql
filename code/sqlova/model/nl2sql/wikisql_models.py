@@ -248,39 +248,6 @@ class Seq2SQL_v1(nn.Module):
                     normal_sql_i[ib]['conds'] = not_repeated_conds
                     cur_conds = not_repeated_conds
             
-            #------------------------adjust wop-------------------------------
-            dayu_before = ['多于','大于','高于','超过','超出','突破','不低于','不小于','占比过','达到','超','破']
-            dayu_after = '以上'
-            xiaoyu_before = ['少于','小于','低于','不足','不高于','不超过','不大于','未达到','没有达到','没有超过','没有突破','未超过','未突破','未超','未破']
-            xiaoyu_after = '以下'
-            for ik, cond in enumerate(cur_conds):
-                if check_is_digits(cond[2]):
-                    nlu_t1 = nlu_t[ib]
-                    ok = False
-                    for st in range(len(nlu_t1)):
-                        if ok:
-                            break
-                        for ed in range(st, min(st + mvl, len(nlu_t1))):
-                            if cond[2] == single_wvi2str([st, ed], nlu_t1):
-                                before_temp = ''
-                                after_temp = ''
-                                if st > 0:
-                                    before_temp = single_wvi2str([max(st - 3, 0), st - 1], nlu_t1)
-                                if ed < len(nlu_t1) - 1:
-                                    after_temp = single_wvi2str([ed + 1, min(len(nlu_t1) - 1, ed + 3)], nlu_t1)
-                                if dayu_after in after_temp:
-                                    cur_conds[ik][1] = 0
-                                elif xiaoyu_after in after_temp:
-                                    cur_conds[ik][1] = 1
-                                elif any([dayu_before1 in before_temp for dayu_before1 in dayu_before]):
-                                    cur_conds[ik][1] = 0
-                                elif any([xiaoyu_before1 in before_temp for xiaoyu_before1 in xiaoyu_before]):
-                                    cur_conds[ik][1] = 1
-                                ok = True
-                                break
-            normal_sql_i[ib]['conds'] = cur_conds
-            #------------------------adjust wop-------------------------------
-            
             cur_scas = [[e1, e2] for e1, e2 in zip(normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'])]
             not_repeated_scas = []
             for sca in cur_scas:
@@ -519,6 +486,41 @@ class Seq2SQL_v1(nn.Module):
             pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
             if not engine.execute(tb[ib]['id'], normal_sql_i[ib]['sel'], normal_sql_i[ib]['agg'], new_conds, rela):
                 still_error += 1
+                #------------------------adjust wop-------------------------------
+                cur_conds = new_conds
+                dayu_before = ['多于','大于','高于','超过','超出','突破','不低于','不小于','占比过','达到','超','破']
+                dayu_after = '以上'
+                xiaoyu_before = ['少于','小于','低于','不足','不高于','不超过','不大于','未达到','没有达到','没有超过','没有突破','未超过','未突破','未超','未破']
+                xiaoyu_after = '以下'
+                for ik, cond in enumerate(cur_conds):
+                    if check_is_digits(cond[2]):
+                        nlu_t1 = nlu_t[ib]
+                        ok = False
+                        for st in range(len(nlu_t1)):
+                            if ok:
+                                break
+                            for ed in range(st, min(st + mvl, len(nlu_t1))):
+                                if cond[2] == single_wvi2str([st, ed], nlu_t1):
+                                    before_temp = ''
+                                    after_temp = ''
+                                    if st > 0:
+                                        before_temp = single_wvi2str([max(st - 3, 0), st - 1], nlu_t1)
+                                    if ed < len(nlu_t1) - 1:
+                                        after_temp = single_wvi2str([ed + 1, min(len(nlu_t1) - 1, ed + 3)], nlu_t1)
+                                    if dayu_after in after_temp:
+                                        cur_conds[ik][1] = 0
+                                    elif xiaoyu_after in after_temp:
+                                        cur_conds[ik][1] = 1
+                                    elif any([dayu_before1 in before_temp for dayu_before1 in dayu_before]):
+                                        cur_conds[ik][1] = 0
+                                    elif any([xiaoyu_before1 in before_temp for xiaoyu_before1 in xiaoyu_before]):
+                                        cur_conds[ik][1] = 1
+                                    ok = True
+                                    break
+                normal_sql_i[ib]['conds'] = cur_conds
+                new_conds = cur_conds
+                pr_sql_list[ib] = {'sel': normal_sql_i[ib]['sel'], 'agg': normal_sql_i[ib]['agg'], 'cond_conn_op': rela, 'conds': new_conds}
+                #------------------------adjust wop-------------------------------
         return pr_sql_list, exe_error, still_error
 
 class SNP(nn.Module):

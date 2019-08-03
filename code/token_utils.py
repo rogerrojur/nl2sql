@@ -1373,6 +1373,14 @@ def get_table_words(table):
     return table_words
 
 
+def get_header_words(table):
+    """提取table中的词, 同时进行排序和过滤"""
+    table_headers = set([str(header) for header in table['header']])
+    # TODO: 可以考虑对header进行分词，然后加入到候选词列表
+    table_headers = sorted([w for w in table_headers if len(w) <= 50], key=lambda x : -len(x))   # 从长到短排序
+    return table_headers
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -1418,6 +1426,8 @@ def annotate_example_nlpir(example, table, split):
 
     # 获取table中的words
     table_words = get_table_words(table)
+    # 获取table header中的words
+    # header_words = get_header_words(table)
 
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理

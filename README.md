@@ -10,3 +10,7 @@
 
 运行说明:
 
+其他说明：
+  1. 在code下建立新的文件夹 result
+  2. code的上一级建立三个文件夹 model/  submit/   data/
+

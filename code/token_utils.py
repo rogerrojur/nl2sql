@@ -754,9 +754,12 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
             '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下':'青铜器辨伪三百例上和青铜器辨伪三百例下',
             '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾','建行':'建设银行','蜂制品':'蜂产品',
+            '上周或者上上周环比':'上周环比或者环比上上周','上周或上上周环比':'上周环比或者环比上上周',
             '去年':'2018年','幺':'一','二零':'',
             '不好意思，':'', '请问一下':'', '请问':'', '打扰一下，':'',
             '你好，':'', '你好':'', '你知道':'',  
+            '的一个':'', '它的一个':'', '他的一个':'',
+            '能不能':'',
             # '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
             # '你给说说':'','你给我说说':'','能给我查一下':'','你能给我':'','你给我':'',
             # '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
@@ -794,6 +797,14 @@ def remove_special_char(s):
         if is_punctuation_en(c) or is_punctuation_ch(c) or is_valid_char(c):
             new_s += c
     return new_s
+
+
+
+def change_special_pattern(s):
+    """
+    改变一些固有的语句格式，如 不是...吗, 本益比，平均市盈率
+    """
+    return s
 
 
 def find_str_wvi_full_match(s, l):
@@ -1222,11 +1233,32 @@ def _process_digit(token_list, table_words, conds_value):
     return new_list
 
 
+def _process_money(token_list, table_words, conds_value):
+    new_list = []
+    words = table_words if table_words != None else conds_value
+    ix = -1
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+        if token not in words:
+            if token[-1] == '元' and len(token) > 1:
+                val = get_numberical_value(token[:-1])
+                if val != None:
+                    new_list.append(val)
+                    new_list.append('元')
+                    continue
+
+        new_list.append(token)
+    return new_list
+
+
 def special_patten_agg(token_list, table_words, conds_value):
     new_list = token_list
     new_list = _process_time(new_list, table_words, conds_value)
 
     new_list = _process_digit(new_list, table_words, conds_value)
+
+    new_list = _process_money(new_list, table_words, conds_value)
 
     return new_list
 
@@ -1349,7 +1381,7 @@ def get_table_words(table):
 
 def get_header_words(table):
     """提取table中的词, 同时进行排序和过滤"""
-    table_headers = set([str(header) for header in table['header']])
+    table_headers = set([str(re.split('（|\(', header)[0]) for header in table['header']])
     # TODO: 可以考虑对header进行分词，然后加入到候选词列表
     table_headers = sorted([w for w in table_headers if len(w) <= 50], key=lambda x : -len(x))   # 从长到短排序
     return table_headers
@@ -1427,12 +1459,28 @@ def _insert_headers_nan_test(ann, table):
     return ann
 
 
+def _process_share_terms(ann, header_words, split):
+    """对证券领域股票专有名词的处理"""
+    # 市盈率/本益比/PE/`P/E`
+    words_set1 = set(['市盈率', '本益比', ])
+    return ann
+
+
+
 def insert_headers_nan(ann, table, split):
     """
     将header信息插入到question_tok，两种选择：插入到wv前；插入到句子前；先试试第1种
     """
     # val和test不使用wvi进行操作, 即按照test的方式来, train使用wvi来进行操作
     return _insert_headers_nan_train(ann, table) if split == 'train' else _insert_headers_nan_test(ann, table)
+
+
+def insert_headers_digit(ann, table, split):
+    # 根据header判断是否属于证券领域，对证券领域股票专有名词的处理
+    # if _is_share_field(table['header']):
+    #     ann = _process_share_terms(ann, table, split)
+
+    return ann
 
 
 def annotate_example_nlpir(example, table, split):
@@ -1445,6 +1493,7 @@ def annotate_example_nlpir(example, table, split):
     example['question'] = example['question'].strip()   # 去除首尾空格
     example['question'] = replace_words(example['question'])    # 替换
     example['question'] = remove_special_char(example['question'])  # 去除question中的特殊字符
+    example['question'] = change_special_pattern(example['question'])   # 改变一些固有模式，如 不是...吗 在...以下
 
     # 去除wv中的特殊字符，可能val也需要类似的处理
     conds_value = set()
@@ -1498,16 +1547,20 @@ def annotate_example_nlpir(example, table, split):
     processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
 
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, None, header_words, header_words, split, order=1)
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
 
-    # 后处理
+    # 后处理,如年份转化，2016.0 -> 2016
     processed_nlu_token_list = post_process(processed_nlu_token_list)
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
 
+    # train数据集应该按照哪种模式来插入？和val相同？
+    ann = insert_headers_digit(ann, table, split)
+
     if split != 'train':
-        # 如果找到table中的value，则将该value对应的header插入到value之前
+        # 如果找到table中的value，则将该value对应的header插入到value之前, 根据wv插入header
         # 对非数字进行操作
         ann = insert_headers_nan(ann, table, split='test')
 
@@ -1632,7 +1685,7 @@ def synonyms_replace(ann, table_words, synonyms_dic, repeat=3):
     Parameters:
         synonyms_dic: w1:[w1, w2, ..., wn]
     """
-    results = [ann]
+    results = []
     for i in range(repeat):
         new_ann = copy.deepcopy(ann)
         new_ann['question_tok'] = _synonyms_replace(new_ann['question_tok'], table_words, synonyms_dic)
@@ -1887,7 +1940,8 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                 a_list = [a]
                 if split == 'train':
                     # data boarden by replacing with synonyms.
-                    a_list = synonyms_replace(a, table_words, synonyms_dic, repeat=0)
+                    syn_results = synonyms_replace(a, table_words, synonyms_dic, repeat=0)
+                    a_list.extend(syn_results)
                     if False:
                         # data boarden by ignoring part of the words.
                         a_list = ignore_words(a, table_words, prob=0.15, repeat=0)
@@ -1899,7 +1953,7 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                     # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
                     if split != 'test':
                         mvl = get_mvl(t)
-                    if mvl > 2 and split == 'train':
+                    if mvl > 2 and (split == 'train' or split == 'val'):
                         mvl_bigger_2 += 1
                         continue
                     if mvl == -1 and (split == 'train' or split == 'val'):
@@ -1918,14 +1972,14 @@ def remove_crap(ann):
 
 
 def record_broaden(ann, table_words, synonyms_dic, repeat=0):
-    results = [ann]
+    results = []
     # 近义词替换来产生
     syn_results = synonyms_replace(ann, table_words, synonyms_dic, repeat-1)
     results.extend(syn_results)
 
     # 去除废话来产生
-    crap_result = remove_crap(ann)
-    results.append(crap_result)
+    # crap_result = remove_crap(ann)
+    # results.append(crap_result)
     return results
 
 
@@ -1945,7 +1999,7 @@ def token_each(record, table, split):
     ann, table_words = annotate_example_nlpir(record, table, split)
 
     results = record_broaden(ann, table_words, synonyms_dic, repeat=0)
-
+    
     if split != 'test':
         mvl = get_mvl(ann)
         # 如果token error或者mvl大于2表示不符合条件，返回None值，只针对train和val

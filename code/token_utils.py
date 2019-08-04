@@ -1545,7 +1545,7 @@ def synonyms_replace(ann, table_words, synonyms_dic, repeat=3):
     Parameters:
         synonyms_dic: w1:[w1, w2, ..., wn]
     """
-    results = [ann]
+    results = []
     for i in range(repeat):
         new_ann = copy.deepcopy(ann)
         new_ann['question_tok'] = _synonyms_replace(new_ann['question_tok'], table_words, synonyms_dic)
@@ -1800,7 +1800,8 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                 a_list = [a]
                 if split == 'train':
                     # data boarden by replacing with synonyms.
-                    a_list = synonyms_replace(a, table_words, synonyms_dic, repeat=0)
+                    syn_results = synonyms_replace(a, table_words, synonyms_dic, repeat=0)
+                    a_list.extend(syn_results)
                     if False:
                         # data boarden by ignoring part of the words.
                         a_list = ignore_words(a, table_words, prob=0.15, repeat=0)
@@ -1837,8 +1838,8 @@ def record_broaden(ann, table_words, synonyms_dic, repeat=0):
     results.extend(syn_results)
 
     # 去除废话来产生
-    crap_result = remove_crap(ann)
-    results.append(crap_result)
+    # crap_result = remove_crap(ann)
+    # results.append(crap_result)
     return results
 
 

@@ -1887,7 +1887,8 @@ def token_each(record, table, split):
     table = _generate_wv_pos_each(table)    # 为table生成三个新的属性
     ann, table_words = annotate_example_nlpir(record, table, split)
 
-    results = record_broaden(ann, table_words, synonyms_dic, repeat=0)
+    # results = record_broaden(ann, table_words, synonyms_dic, repeat=0)
+    results = [ann]
 
     if split != 'test':
         mvl = get_mvl(ann)

@@ -1355,6 +1355,86 @@ def get_header_words(table):
     return table_headers
 
 
+def is_arabic_number(s):
+    """阿拉伯数字"""
+    for c in s:
+        if c not in '0123456789.-':
+            return False
+    return True
+
+
+def _insert_headers_nan_train(ann, table):
+    """
+    将header信息插入到question_tok，两种选择：插入到wv前；插入到句子前；先试试第1种
+    """
+    # 找到每个wvi对应的header，放到列表
+    if ann['wvi_corenlp'] == None:
+        return ann
+    # 确定在table_content中的index，没有为-1
+    wvis = ann['wvi_corenlp']
+    ixs = []
+    for wvi in wvis:
+        tmp_val = ''.join(ann['question_tok'][wvi[0]:(wvi[1]+1)])
+        find_it = False
+        if is_arabic_number(tmp_val):
+            ixs.append(-1)
+            continue
+        for ix, content in enumerate(table['table_content']):
+            if content == tmp_val:
+                find_it = True
+                ixs.append(ix)
+                break
+        if not find_it:
+            ixs.append(-1)
+
+    # 确定header列表，没有为None
+    header_list = []
+    for ix in ixs:
+        find_it = False
+        headers = table['content_header'][ix]
+        # 只考虑长度为1的header，怎么简单怎么来
+        if len(headers) == 1 and ix != -1:
+            find_it = True
+            header_list.append(headers[0])
+        if not find_it:
+            header_list.append(None)
+
+    # 将header插入，然后对wvi进行更新
+    insert_num = [0] * len(ann['wvi_corenlp'])
+    for i, wvi in enumerate(ann['wvi_corenlp']):
+        if header_list[i]:
+            ann['question_tok'].insert(wvi[0], header_list[i])
+            # Update wvi
+            for j, twv in enumerate(ann['wvi_corenlp']):
+                if twv[0] >= wvi[0]:
+                    twv[0] += 1
+                    twv[1] += 1
+
+    return ann
+
+
+def _insert_headers_nan_test(ann, table):
+    """对val和test进行操作，将可能是table_content中的值的header信息插入到content之前"""
+    for ix, content in enumerate(table['table_content']):
+        wvi = find_str_wvi_full_match(content, ann['question_tok'])
+        # 如果找到content并且这个content对应的header只有一个, 并且不是数字
+        if wvi:
+            tmp_str = ''.join(ann['question_tok'][wvi[0]:(wvi[1]+1)])
+            if len(table['content_header'][ix]) == 1 and not is_arabic_number(tmp_str):
+                # 这个过程可能会陷入死循环
+                # 即：如果插入的值出现在还没有遍历到的content时，可能性很小，先不管 warn
+                ann['question_tok'].insert(wvi[0], table['content_header'][ix][0])
+    return ann
+
+
+def insert_headers_nan(ann, table, split):
+    """
+    将header信息插入到question_tok，两种选择：插入到wv前；插入到句子前；先试试第1种
+    """
+    # val和test不使用wvi进行操作, 即按照test的方式来, train使用wvi来进行操作
+    return _insert_headers_nan_train(ann, table) if split == 'train' else _insert_headers_nan_test(ann, table)
+
+
 def annotate_example_nlpir(example, table, split):
     """
     Jan. 2019: Wonseok
@@ -1406,6 +1486,8 @@ def annotate_example_nlpir(example, table, split):
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
+    # 对header进行全匹配
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, None, header_words, header_words, split, order=0)
     # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理\
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
 
@@ -1423,15 +1505,17 @@ def annotate_example_nlpir(example, table, split):
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
-    # ann['table'] = {
-    #     'header': [annotate(h) for h in table['header']],
-    # }
+
+    if split != 'train':
+        # 如果找到table中的value，则将该value对应的header插入到value之前
+        # 对非数字进行操作
+        ann = insert_headers_nan(ann, table, split='test')
+
     # 测试集中没有sql属性，在这个地方进行判断
     if 'sql' not in example:
         return ann, table_words
         
     # Check whether wv_ann exsits inside question_tok
-
     try:
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
@@ -1471,6 +1555,9 @@ def annotate_example_nlpir(example, table, split):
     # 增加一个属性，对每个wv，将其在table中的位置(行1, 行2)放到一个列表
     wv_pos = check_wv_in_table(table, ann['sql']['conds'], split)
     ann['wv_pos'] = wv_pos
+
+    if split == 'train':
+        ann = insert_headers_nan(ann, table, split)
 
     return ann, table_words
 

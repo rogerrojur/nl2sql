@@ -1,16 +1,18 @@
-# nl2sql
-天池大赛nlp之sql
+date: 2019.8.7
 
-
-1. [tok文件路径](https://www.dropbox.com/sh/zyzpy44aan8gocy/AAC3C60hBQrN7YE2ol_g9_jba?dl=0)
-2. [最优模型参数best_model](https://www.dropbox.com/sh/o86nw4saig21b20/AABKYPxU_udCPghi2gH0gejFa?dl=0) val logic form accuracy: 0.273, execution accuracy: 0.398
-3. [提交文件](https://www.dropbox.com/sh/ldzb6jk4kyd8h9p/AADt4Ro0MKhyogQkzGPl_U3Ia?dl=0)
-
-注意：最新的模型需要train_tok切割为7的short
-
-运行说明:
+模型：
+    1. 提交的代码模型是分数0.7844的, 排行榜23名, 在model文件夹下为.pt文件
 
 其他说明：
-  1. 在code下建立新的文件夹 result
-  2. code的上一级建立三个文件夹 model/  submit/   data/
+    1. 在code下建立新的文件夹result，用于保存验证集的预测结果
+    2. project文件夹下建立三个文件夹: model/  submit/   data/
+    文件结构如下：(显示的文件夹是必须建立的，否则会报错)
+    |-project/
+    ||--code/
+    |||--result/
+    ||--model/
+    |||--model_bert_best.pt
+    |||--model_best.pt
+    ||--submit/
+    ||--data/
 

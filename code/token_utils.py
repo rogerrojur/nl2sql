@@ -745,9 +745,11 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
 
 
 words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', '企鹅公司':'腾讯公司',
-            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海','北京，深圳':'北京和深圳',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
+            '两个人':'两人','啥':'什么','市价盈利比率':'市盈率',
+            '华师':'华南师范大学',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
@@ -761,13 +763,6 @@ words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'',
             '你好，':'', '你好':'', '你知道':'',  
             '的一个':'', '它的一个':'', '他的一个':'',
             '能不能':'',
-            # '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
-            # '你给说说':'','你给我说说':'','能给我查一下':'','你能给我':'','你给我':'',
-            # '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
-            # '帮我看一下':'', '我想咨询一下':'', '我想了解':'', '能帮我查询一下':'', '我想查一下':'','我只想知道':'',
-            # '我只想了解一下':'', '我只想查一下':'', '我只想咨询一下':'', '我问问':'', '帮我查查':'', '我想查查':'',
-            # '想要了解一下':'', '想了解一下':'', '想咨询一下':'', '想问一下':'', '想要了解':'', '想了解':'','能说一下':'','能介绍一下':'', 
-            # '想要':'', '查下':'', '就是':'', '麻烦':''
             }
 
 
@@ -782,7 +777,7 @@ def is_punctuation_en(uchar):
     return uchar in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
 
 def is_punctuation_ch(uchar):
-    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ¥'
+    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧・﹏.Ⅱα•Ⅳ¥'
 
 
 def replace_words(s):
@@ -819,7 +814,20 @@ def _change_pattern_time(s):
             target += tmp
             if i < ey:
                 target += '和'
-    s = s.replace(res, target)
+        s = s.replace(res, target)
+
+    # [0-9]{1,2}月[0-9]{1,2}号[到至][0-9]{1,2}号
+    mp = re.compile('[0-9]{1,2}月[0-9]{1,2}[号日][到至][0-9]{1,2}[号日]')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        m, d1, d2 = mp_digit.findall(res)
+        target = m + '月' + d1 + '日' + '-' + d2 + '日'
+        s = s.replace(res, target)
+
+    # [0-9]+年[0-9]+[到-][0-9]+月
+
     return s
 
 
@@ -859,24 +867,123 @@ def _change_pattern_other(s):
     s = _replace_pattern(s, '日的?成交量?', '日成交')
     s = _replace_pattern(s, '平均每天成交量?', '日均成交')
     s = _replace_pattern(s, '每(日|天)的?成交', '日成交')
-    s = _replace_pattern(s, '上一周|上个?(礼拜|星期)', '上周')
-    s = _replace_pattern(s, '这一?周|这个?(礼拜|星期)也?', '本周')
+    s = _replace_pattern(s, '上一(周|星期)|上个?(礼拜|星期)', '上周')
+    s = _replace_pattern(s, '这一?(周|星期)|这个?(礼拜|星期)也?', '本周')
     s = _replace_pattern(s, '你好啊?，?|诶+，', '')
     s = _replace_pattern(s, '或者?是?', '或')
     s = _replace_pattern(s, '这一?本书?的?', '')
+    s = _replace_pattern(s, '有没有', '')
+    s = _replace_pattern(s, '一平米?', '每平')
+    s = _replace_pattern(s, '每?一股', '每股')
+    s = _replace_pattern(s, '这一?期', '本期')
+    s = _replace_pattern(s, '上一?期', '上期')
+    s = _replace_pattern(s, '合格不|是否合格', '结果')
+    s = _replace_pattern(s, '(青岛)?雀巢', '青岛雀巢')
+    s = _replace_pattern(s, '久光百货(有限公司)?', '久光百货有限公司')
+    s = _replace_pattern(s, '慧奔鞋业(有限公司)?', '慧奔鞋业有限公司')
+    s = _replace_pattern(s, '什么时候', '什么时间')
+    s = _replace_pattern(s, '[哪那]几个|哪一些', '哪些')
+    s = _replace_pattern(s, '几个', '多少')
+    s = _replace_pattern(s, '哪家|哪一个|哪一位', '哪个')
+    s = _replace_pattern(s, '有几', '有多少')
+    s = _replace_pattern(s, '不[大高]于|[低少]于|不足|不超|没破|没大于', '小于')
+    s = _replace_pattern(s, '高于|不[低少小]于|超过|多于', '大于')
+    s = _replace_pattern(s, '一共', '总共')
+    s = _replace_pattern(s, '的?下午一点钟', '下午13:00')
+    s = _replace_pattern(s, '我国', '中国')
+    s = _replace_pattern(s, '的数量', '数量')
+    s = _replace_pattern(s, '是谁著的', '作者是谁')
+    s = _replace_pattern(s, '西安市?神电(电器)?', '西安神电电器')
+    s = _replace_pattern(s, '并且|此外|同时', '而且')
+    s = _replace_pattern(s, '月的(时候)?', '月')
+    s = _replace_pattern(s, '年的(时候)?', '年')
+    s = _replace_pattern(s, '平均价格', '均价')
+    s = _replace_pattern(s, '16岁?.35岁', '16至35岁、普通招生计划应届毕业生不限')
+    s = _replace_pattern(s, '2012年1-5月', '2012:1-5')
+    s = _replace_pattern(s, '2月23号下午13:00', '2月23日下午13:00')
 
-    mp = re.compile('(麻烦)?请?你?(可以|能|能不能)?(就是)?(帮|给|告诉)?我?已?(想|想要|可不可以|能不能)?(了解|查一查|查询|查|知道|看看|看|列列|咨询|问问|问|说说|说|数数|数|列一下|算算|算|统计)(一下|到)?你?(就是)?')
+    mp = re.compile('(麻烦)?请?你?(可以|能|能不能)?(就是)?(帮|给|告诉)?我?已?(想|想要|还想|可不可以|能不能)?(了解|查一查|查查|查询|查|知道|看看|看|列列|咨询|问问|问|说说|说|数数|数|列一下|算算|算|统计)(一下|到)?你?(就是)?')
     if mp.search(s):
         tmp_str = mp.search(s).group()
         if len(tmp_str) >= 2:
             s = s.replace(mp.search(s).group(), '')
 
-    s = _replace_pattern(s, '麻烦?请?你?(能|可以|方便)?跟?(告诉我|帮我)(算|找找)?(一下)?', '')
-    s = _replace_pattern(s, '^(的是|，|查|麻烦跟|就是，?|一下|们，?)', '')
+    mp = re.compile('突?破[一二三四五六七八九十1-9]')
+    if mp.search(s):
+        tmp_str = mp.search(s).group()
+        s = s.replace(mp.search(s).group()[:-1], '大于')
+
+    s = _replace_pattern(s, '麻烦?请?你?(能|可以|方便)?跟?(告诉我|帮我|给我|告知)(算|找找|查查)?(一下)?', '')
+    s = _replace_pattern(s, '^(的是|，|查|麻烦跟?|就是，?|一下|们，?|我就|我只)', '')
     s = _replace_pattern(s, '一下|谢谢，?。?', '')
     # s = _replace_pattern(s, '高于|')
 
     return s
+
+
+def _chnage_pattern_share(s):
+    # [0-9]+年(还有|和|，)[0-9]+年(还有|和|，)[0-9]+年(每股盈余|每股收益|EPS)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年(还有|和|，)?[0-9]+年的?(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2, y3 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS和' + y3 + '年EPS'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(还有|和|，)[0-9]+年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2, y3 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE和' + y3 + '年PE'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(每股盈余|每股收益|EPS)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE'
+        s = s.replace(res, target)
+
+    # [一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(每股盈余|每股收益|EPS)
+    mp = re.compile('[一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[一二三四五六七八九零]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS'
+        s = s.replace(res, target)
+
+    # [一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[一二三四五六七八九零]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE'
+        s = s.replace(res, target)
+
+    return s
+
 
 def change_special_pattern(s):
     """
@@ -885,6 +992,7 @@ def change_special_pattern(s):
     s = _change_pattern_time(s)
     s = _change_pattern_compare(s)
     s = _change_pattern_other(s)
+    s = _chnage_pattern_share(s)
     
     return s
 
@@ -1091,6 +1199,9 @@ def tokens_part_match_1th(token_list, words, other_words, order):
         # 阈值设定可能需要调整,范围大概是0.61~0.66
         if max_ratio >= 0.63 and len(new_list[ix]) > 1:
             new_list[ix] = max_word
+            # 北京(市) 北京xxx
+            if ix > 0 and max_word.startswith(new_list[ix-1][:2]):
+                new_list[ix-1] = ''
             for t in range(ix+1, max_end_ix+1):
                 new_list[t] = ''  # 将这个设为''，因为已经被匹配了
 
@@ -1141,9 +1252,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             if get_similarity(tmp_str, single_word) < 0.7 and single_word.endswith(tmp_token):
                 continue
             # 对于常见字符单独处理
-            if tmp_str in ['本书','房地产'] and single_word.startswith(tmp_str):
+            if tmp_str in ['本书','房地产','出版社','医师'] and single_word.startswith(tmp_str):
                 continue
-            if tmp_str in ['城市','房地产'] and single_word.endswith(tmp_str):
+            if tmp_str in ['城市','房地产','出版社','医师'] and single_word.endswith(tmp_str):
                 continue
             # 当我们找到一个唯一的匹配时，还要加一个限制条件，即tmp_str和single_word差异太大时忽略改变
             # 徐伟水泥制品厂 徐伟 0.5
@@ -1152,6 +1263,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             if (len(words) > 3 and ((single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5)) \
                 or (len(words) <= 3 and similarity > 0.4):
                 new_list[ix] = single_word
+                # 北京(市) 北京xxx
+                if ix > 0 and single_word.startswith(new_list[ix-1][:2]):
+                    new_list[ix-1] = ''
                 for t in range(ix+1, end_ix+1):
                     new_list[t] = ''
         # 如果当前词对应words中的不止一个词，即token出现在多个词中,能进行替换的词不止一个
@@ -1167,6 +1281,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
                 continue
             if max_ratio >= 0.65:
                 new_list[ix] = max_word
+                # 北京(市) 北京xxx
+                if ix > 0 and max_word.startswith(new_list[ix-1][:2]):
+                    new_list[ix-1] = ''
                 for t in range(ix+1, max_end_ix+1):
                     new_list[t] = ''  # 将这个设为''，因为已经被匹配了
 
@@ -1387,6 +1504,8 @@ def _remove_common_words(new_list):
 common_words = _read_common_words('./dic.txt')
 def common_words_agg(token_list):
     # 'train' 或者 'test' 都可以的
+    # 需要进行两遍，不然有的词不能聚合
+    new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
     new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
 
     new_list = _remove_common_words(new_list)
@@ -1404,6 +1523,7 @@ def post_process(token_list):
             if ix > 0:
                 if token_list[ix-1].endswith('.0'):
                     token_list[ix-1] = token_list[ix-1][:-2]
+    token_list = remove_null(token_list)
     return token_list
 
 
@@ -1453,7 +1573,7 @@ def check_wv_in_table(table, conds, split):
     return wv_poses
 
 
-useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已'}
+useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已','呗'}
 def remove_useless_words(token_list):
     """删除一些无用的词，去掉不影响语意的"""
     new_list = []
@@ -1555,16 +1675,16 @@ def _insert_headers_nan_test(ann, table):
 def _get_date(token_list, ix):
     # 遍历顺序 ix向前，ix向后，找到对应的日期,是4位的或者None
     tmp_token_list = token_list[:ix][::-1] + token_list[ix+1:]
-    date_list = set()
+    date = None
     for token in tmp_token_list:
         if str.isdigit(token):
             # 返回年份,ix之前的遍历
             if len(token) == 4 and 1970 <= int(token) <= 2050:
-                date_list.add(token)
+                return token
             # if len(token) == 2 and 0 <= int(token) <= 50:
             #     date_list.add('20' + token)
     # 没找到返回None
-    return list(date_list)
+    return None
 
 
 def _get_header(headers, term_type, date):
@@ -1602,9 +1722,6 @@ def _get_header(headers, term_type, date):
     # print(match_results)
     if not date:
         return []
-    if len(date) > 1:
-        return match_results
-    date = date[0]  # 取出唯一的一个date
 
     # 如果不止一个匹配结果
     for header in match_results:
@@ -2034,6 +2151,8 @@ def _read_dic(fname):
 
 def _is_reasonable(s, ignore_digit=True):
     """去掉table_content中不符合条件的词，包括数字和单字"""
+    if len(s) == 0:
+        return False
     if len(s) > 50:
         return False
     if len(s) == 1 and s not in '0123456789':
@@ -2066,7 +2185,7 @@ def _generate_wv_pos_each(table):
     table_content_null = True
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit=True):
                 table_content_null = True
                 break
@@ -2077,10 +2196,10 @@ def _generate_wv_pos_each(table):
     # 生成table的table_content属性，从上到下，从左到右
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit):
                 # 去除特殊字符
-                table_content.add(remove_special_char(sv))
+                table_content.add(sv)
 
     # 字典content_ix_dic：每个value对应的index
     content_ix_dic = {}
@@ -2092,7 +2211,7 @@ def _generate_wv_pos_each(table):
 
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit):
                 ix = content_ix_dic[sv]     # 获取这个content在`table_content`中的位置
                 content_header[ix].add(headers[c])

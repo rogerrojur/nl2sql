@@ -745,25 +745,24 @@ def replace_unmatch_set(token_list, wv_list, wvi_list, replace_list):
 
 
 words_dic = {'诶，':'','诶':'','那个':'','那个，':'', '呀':'','啊':'','呃':'', '鹅厂':'腾讯', '企鹅公司':'腾讯公司',
-            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海',
+            '马桶台':'湖南芒果TV', '荔枝台':'江苏卫视', '北上广':'北京和上海和广州','北上':'北京和上海','北京，深圳':'北京和深圳',
             '厦大':'厦门大学', '中大':'中山大学', '广大':'广州大学', '东航':'东方航空', '国图':'国家图书馆',
             '内师大':'内蒙古师范大学','武大':'武汉大学','中科大':'中国科学技术大学','欢乐喜和剧人':'欢乐喜剧人',
+            '两个人':'两人','啥':'什么','市价盈利比率':'市盈率',
+            '华师':'华南师范大学',
             '本科或者本科以上':'本科及本科以上','并且':'而且','为负':'小于0','为正':'大于0','陆地交通运输':'陆运','亚太地区':'亚太',
             '负数':'小于0','两万一':'21000','辣椒台':'江西卫视','一二线城市':'一线城市和二线城市','二三线城市':'二线城市和三线城市',
             '世贸':'世茂','山职':'山东职业学院','安徽职院':'安徽职业技术学院','冯玉祥自传':'冯玉祥自述',
             '科研岗位1，2':'科研岗位01和科研岗位02','科研岗位1':'科研岗位01','水关':'水官','上海交大':'上海交通大学',
             '毫克':'mg','写的':'著的','3A':'AAA','红台节目':'江苏卫视','超过':'大于','青铜器辨伪三百例上下':'青铜器辨伪三百例上和青铜器辨伪三百例下',
             '阅读思维人生':'“阅读•思维•人生”','台湾':'中国台湾','建行':'建设银行','蜂制品':'蜂产品',
+            '上周或者上上周环比':'上周环比或者环比上上周','上周或上上周环比':'上周环比或者环比上上周',
             '去年':'2018年','幺':'一','二零':'',
+            '收盘的价格':'收盘价', '收盘价格':'收盘价','EP2011':'PE2011',
             '不好意思，':'', '请问一下':'', '请问':'', '打扰一下，':'',
             '你好，':'', '你好':'', '你知道':'',  
-            # '你能告诉我':'', '你可以帮我查一下':'', '你帮我查一下':'', '你能帮我':'',
-            # '你给说说':'','你给我说说':'','能给我查一下':'','你能给我':'','你给我':'',
-            # '我想问一下':'', '我想问问':'', '我想问':'','我想知道':'',  '我就想知道':'', '我就想了解':'', '帮我查询':'', '我想了解一下':'', 
-            # '帮我看一下':'', '我想咨询一下':'', '我想了解':'', '能帮我查询一下':'', '我想查一下':'','我只想知道':'',
-            # '我只想了解一下':'', '我只想查一下':'', '我只想咨询一下':'', '我问问':'', '帮我查查':'', '我想查查':'',
-            # '想要了解一下':'', '想了解一下':'', '想咨询一下':'', '想问一下':'', '想要了解':'', '想了解':'','能说一下':'','能介绍一下':'', 
-            # '想要':'', '查下':'', '就是':'', '麻烦':''
+            '的一个':'', '它的一个':'', '他的一个':'',
+            '能不能':'',
             }
 
 
@@ -778,7 +777,7 @@ def is_punctuation_en(uchar):
     return uchar in '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
 
 def is_punctuation_ch(uchar):
-    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧﹏.Ⅱα•Ⅳ¥'
+    return uchar in '！？｡。＂·＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃《》「」『』【】〜〝〞–—‘\'‛“”„‟…‧・﹏.Ⅱα•Ⅳ¥'
 
 
 def replace_words(s):
@@ -794,6 +793,208 @@ def remove_special_char(s):
         if is_punctuation_en(c) or is_punctuation_ch(c) or is_valid_char(c):
             new_s += c
     return new_s
+
+
+def _change_pattern_time(s):
+    # [0-9]{2}年到[0-9]{2}年
+    mp = re.compile('[0-9]{2}年到[0-9]{2}年')
+    mp_digit = re.compile('[0-9]{2}')
+
+    target = ''
+    res = ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        sy, ey = mp_digit.findall(res)
+        sy, ey = int('20'+sy), int('20'+ey)
+        # 2018 2019 2020
+        if ey - sy > 3:
+            return s
+        for i in range(sy, ey+1):
+            tmp = str(i)[2:] + '年'
+            target += tmp
+            if i < ey:
+                target += '和'
+        s = s.replace(res, target)
+
+    # [0-9]{1,2}月[0-9]{1,2}号[到至][0-9]{1,2}号
+    mp = re.compile('[0-9]{1,2}月[0-9]{1,2}[号日][到至][0-9]{1,2}[号日]')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        m, d1, d2 = mp_digit.findall(res)
+        target = m + '月' + d1 + '日' + '-' + d2 + '日'
+        s = s.replace(res, target)
+
+    # [0-9]+年[0-9]+[到-][0-9]+月
+
+    return s
+
+
+def _change_pattern_compare(s):
+    # 在[0-9]+.{0,4}以上
+    mp1 = re.compile('在[0-9]+.{0,4}以上')
+
+    target, res = '', ''
+    if mp1.search(s):
+        res = mp1.search(s).group()
+        target = '大于' + res[1:-2]
+        
+    s = s.replace(res, target)
+
+    mp2 = re.compile('在[0-9]+.{0,4}以下')
+    target, res = '', ''
+    if mp2.search(s):
+        res = mp2.search(s).group()
+        target = '小于' + res[1:-2]
+        
+    s = s.replace(res, target)
+
+    return s
+
+
+def _replace_pattern(s, p1, target):
+    # 将p1模式的字符串替换成s字符串
+    mp = re.compile(p1)
+    if mp.search(s):
+        s = s.replace(mp.search(s).group(), target)
+    return s
+
+
+def _change_pattern_other(s):
+    s = _replace_pattern(s, '股票(交易)?的?价格', '股价')
+    s = _replace_pattern(s, '最?(近|新)一个?(周|星期)', '近7日')
+    s = _replace_pattern(s, '日的?成交量?', '日成交')
+    s = _replace_pattern(s, '平均每天成交量?', '日均成交')
+    s = _replace_pattern(s, '每(日|天)的?成交', '日成交')
+    s = _replace_pattern(s, '上一(周|星期)|上个?(礼拜|星期)', '上周')
+    s = _replace_pattern(s, '这一?(周|星期)|这个?(礼拜|星期)也?', '本周')
+    s = _replace_pattern(s, '你好啊?，?|诶+，', '')
+    s = _replace_pattern(s, '或者?是?', '或')
+    s = _replace_pattern(s, '这一?本书?的?', '')
+    s = _replace_pattern(s, '有没有', '')
+    s = _replace_pattern(s, '一平米?', '每平')
+    s = _replace_pattern(s, '每?一股', '每股')
+    s = _replace_pattern(s, '这一?期', '本期')
+    s = _replace_pattern(s, '上一?期', '上期')
+    s = _replace_pattern(s, '合格不|是否合格', '结果')
+    s = _replace_pattern(s, '(青岛)?雀巢', '青岛雀巢')
+    s = _replace_pattern(s, '久光百货(有限公司)?', '久光百货有限公司')
+    s = _replace_pattern(s, '慧奔鞋业(有限公司)?', '慧奔鞋业有限公司')
+    s = _replace_pattern(s, '什么时候', '什么时间')
+    s = _replace_pattern(s, '[哪那]几个|哪一些', '哪些')
+    s = _replace_pattern(s, '几个', '多少')
+    s = _replace_pattern(s, '哪家|哪一个|哪一位', '哪个')
+    s = _replace_pattern(s, '有几', '有多少')
+    s = _replace_pattern(s, '不[大高]于|[低少]于|不足|不超|没破|没大于', '小于')
+    s = _replace_pattern(s, '高于|不[低少小]于|超过|多于', '大于')
+    s = _replace_pattern(s, '一共', '总共')
+    s = _replace_pattern(s, '的?下午一点钟', '下午13:00')
+    s = _replace_pattern(s, '我国', '中国')
+    s = _replace_pattern(s, '的数量', '数量')
+    s = _replace_pattern(s, '是谁著的', '作者是谁')
+    s = _replace_pattern(s, '西安市?神电(电器)?', '西安神电电器')
+    s = _replace_pattern(s, '并且|此外|同时', '而且')
+    s = _replace_pattern(s, '月的(时候)?', '月')
+    s = _replace_pattern(s, '年的(时候)?', '年')
+    s = _replace_pattern(s, '平均价格', '均价')
+    s = _replace_pattern(s, '16岁?.35岁', '16至35岁、普通招生计划应届毕业生不限')
+    s = _replace_pattern(s, '2012年1-5月', '2012:1-5')
+    s = _replace_pattern(s, '2月23号下午13:00', '2月23日下午13:00')
+
+    mp = re.compile('(麻烦)?请?你?(可以|能|能不能)?(就是)?(帮|给|告诉)?我?已?(想|想要|还想|可不可以|能不能)?(了解|查一查|查查|查询|查|知道|看看|看|列列|咨询|问问|问|说说|说|数数|数|列一下|算算|算|统计)(一下|到)?你?(就是)?')
+    if mp.search(s):
+        tmp_str = mp.search(s).group()
+        if len(tmp_str) >= 2:
+            s = s.replace(mp.search(s).group(), '')
+
+    mp = re.compile('突?破[一二三四五六七八九十1-9]')
+    if mp.search(s):
+        tmp_str = mp.search(s).group()
+        s = s.replace(mp.search(s).group()[:-1], '大于')
+
+    s = _replace_pattern(s, '麻烦?请?你?(能|可以|方便)?跟?(告诉我|帮我|给我|告知)(算|找找|查查)?(一下)?', '')
+    s = _replace_pattern(s, '^(的是|，|查|麻烦跟?|就是，?|一下|们，?|我就|我只)', '')
+    s = _replace_pattern(s, '一下|谢谢，?。?', '')
+    # s = _replace_pattern(s, '高于|')
+
+    return s
+
+
+def _chnage_pattern_share(s):
+    # [0-9]+年(还有|和|，)[0-9]+年(还有|和|，)[0-9]+年(每股盈余|每股收益|EPS)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年(还有|和|，)?[0-9]+年的?(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2, y3 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS和' + y3 + '年EPS'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(还有|和|，)[0-9]+年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2, y3 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE和' + y3 + '年PE'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(每股盈余|每股收益|EPS)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS'
+        s = s.replace(res, target)
+
+    # [0-9]+年(还有|和|，)[0-9]+年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[0-9]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE'
+        s = s.replace(res, target)
+
+    # [一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(每股盈余|每股收益|EPS)
+    mp = re.compile('[一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(每股盈余|每股收益|EPS)')
+    mp_digit = re.compile('[一二三四五六七八九零]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年EPS和' + y2 + '年EPS'
+        s = s.replace(res, target)
+
+    # [一二三四五六七八九零]{2,}年(还有|和|，)[一二三四五六七八九零]{2,}年(市盈率|本益比|PE)
+    mp = re.compile('[0-9]+年(还有|和|，)?[0-9]+年的?(市盈率|本益比|PE)')
+    mp_digit = re.compile('[一二三四五六七八九零]+')
+    target, res = '', ''
+    if mp.search(s):
+        res = mp.search(s).group()
+        y1, y2 = mp_digit.findall(res)
+        target = y1 + '年PE和' + y2 + '年PE'
+        s = s.replace(res, target)
+
+    return s
+
+
+def change_special_pattern(s):
+    """
+    改变一些固有的语句格式，如 不是...吗, 本益比，平均市盈率
+    """
+    s = _change_pattern_time(s)
+    s = _change_pattern_compare(s)
+    s = _change_pattern_other(s)
+    s = _chnage_pattern_share(s)
+    
+    return s
 
 
 def find_str_wvi_full_match(s, l):
@@ -998,6 +1199,9 @@ def tokens_part_match_1th(token_list, words, other_words, order):
         # 阈值设定可能需要调整,范围大概是0.61~0.66
         if max_ratio >= 0.63 and len(new_list[ix]) > 1:
             new_list[ix] = max_word
+            # 北京(市) 北京xxx
+            if ix > 0 and max_word.startswith(new_list[ix-1][:2]):
+                new_list[ix-1] = ''
             for t in range(ix+1, max_end_ix+1):
                 new_list[t] = ''  # 将这个设为''，因为已经被匹配了
 
@@ -1048,9 +1252,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             if get_similarity(tmp_str, single_word) < 0.7 and single_word.endswith(tmp_token):
                 continue
             # 对于常见字符单独处理
-            if tmp_str in ['本书'] and single_word.startswith(tmp_str):
+            if tmp_str in ['本书','房地产','出版社','医师'] and single_word.startswith(tmp_str):
                 continue
-            if tmp_str in ['城市','房地产'] and single_word.endswith(tmp_str):
+            if tmp_str in ['城市','房地产','出版社','医师'] and single_word.endswith(tmp_str):
                 continue
             # 当我们找到一个唯一的匹配时，还要加一个限制条件，即tmp_str和single_word差异太大时忽略改变
             # 徐伟水泥制品厂 徐伟 0.5
@@ -1059,6 +1263,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
             if (len(words) > 3 and ((single_word.startswith(tmp_str) and similarity > 0.4) or similarity > 0.5)) \
                 or (len(words) <= 3 and similarity > 0.4):
                 new_list[ix] = single_word
+                # 北京(市) 北京xxx
+                if ix > 0 and single_word.startswith(new_list[ix-1][:2]):
+                    new_list[ix-1] = ''
                 for t in range(ix+1, end_ix+1):
                     new_list[t] = ''
         # 如果当前词对应words中的不止一个词，即token出现在多个词中,能进行替换的词不止一个
@@ -1074,6 +1281,9 @@ def tokens_part_match_2th(token_list, words, other_words, order):
                 continue
             if max_ratio >= 0.65:
                 new_list[ix] = max_word
+                # 北京(市) 北京xxx
+                if ix > 0 and max_word.startswith(new_list[ix-1][:2]):
+                    new_list[ix-1] = ''
                 for t in range(ix+1, max_end_ix+1):
                     new_list[t] = ''  # 将这个设为''，因为已经被匹配了
 
@@ -1111,7 +1321,6 @@ def tokens_part_match(token_list, words, table=None, other_words=None, order=0):
     return new_list
     
 
-
 def part_match_agg(token_list, table, table_words, conds_value, split, order):
     # 如果不是test数据集，则使用wv进行匹配，否则使用table中的内容进行匹配，val待定
     new_list = token_list
@@ -1135,6 +1344,14 @@ def _process_time(token_list, table_words, conds_value):
             # 16/年；
             if len(last_token) == 2 and str.isdigit(last_token):
                 new_list[-1] = '20' + last_token    # 假设是20xx年，待定
+                new_list.append('年')
+                continue
+            # 一九/年
+            if len(last_token) == 2 and last_token[0] in tmp_dic and last_token[1] in tmp_dic:
+                s_value = tmp_dic[last_token[0]] + tmp_dic[last_token[1]]
+                pre_tmp_str = '20' if int(s_value) <= 70 else '19'
+                tmp_str = pre_tmp_str + s_value
+                new_list[-1] = tmp_str
                 new_list.append('年')
                 continue
         if token not in words:
@@ -1222,11 +1439,32 @@ def _process_digit(token_list, table_words, conds_value):
     return new_list
 
 
+def _process_money(token_list, table_words, conds_value):
+    new_list = []
+    words = table_words if table_words != None else conds_value
+    ix = -1
+    while ix < len(token_list) - 1:
+        ix += 1
+        token = token_list[ix]
+        if token not in words:
+            if token[-1] == '元' and len(token) > 1:
+                val = get_numberical_value(token[:-1])
+                if val != None:
+                    new_list.append(val)
+                    new_list.append('元')
+                    continue
+
+        new_list.append(token)
+    return new_list
+
+
 def special_patten_agg(token_list, table_words, conds_value):
     new_list = token_list
     new_list = _process_time(new_list, table_words, conds_value)
 
     new_list = _process_digit(new_list, table_words, conds_value)
+
+    new_list = _process_money(new_list, table_words, conds_value)
 
     return new_list
 
@@ -1266,6 +1504,8 @@ def _remove_common_words(new_list):
 common_words = _read_common_words('./dic.txt')
 def common_words_agg(token_list):
     # 'train' 或者 'test' 都可以的
+    # 需要进行两遍，不然有的词不能聚合
+    new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
     new_list = full_match_agg(token_list, None, common_words, common_words, 'train', order=0)
 
     new_list = _remove_common_words(new_list)
@@ -1279,6 +1519,11 @@ def post_process(token_list):
     for ix, token in enumerate(token_list):
         if len(token) == 6 and token.endswith('.0'):
             token_list[ix] = token[:4]
+        if token == '月' or token == '号' or token == '日':
+            if ix > 0:
+                if token_list[ix-1].endswith('.0'):
+                    token_list[ix-1] = token_list[ix-1][:-2]
+    token_list = remove_null(token_list)
     return token_list
 
 
@@ -1328,7 +1573,7 @@ def check_wv_in_table(table, conds, split):
     return wv_poses
 
 
-useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已'}
+useless_words = {'来着', '了', '呢', '儿', '会', '吗', '来着', '已','呗'}
 def remove_useless_words(token_list):
     """删除一些无用的词，去掉不影响语意的"""
     new_list = []
@@ -1349,10 +1594,213 @@ def get_table_words(table):
 
 def get_header_words(table):
     """提取table中的词, 同时进行排序和过滤"""
-    table_headers = set([str(header) for header in table['header']])
+    table_headers = set([str(re.split('（|\(', header)[0]) for header in table['header']])
     # TODO: 可以考虑对header进行分词，然后加入到候选词列表
     table_headers = sorted([w for w in table_headers if len(w) <= 50], key=lambda x : -len(x))   # 从长到短排序
     return table_headers
+
+
+def is_arabic_number(s):
+    """阿拉伯数字"""
+    for c in s:
+        if c not in '0123456789.-':
+            return False
+    return True
+
+
+def _insert_headers_nan_train(ann, table):
+    """
+    将header信息插入到question_tok，两种选择：插入到wv前；插入到句子前；先试试第1种
+    """
+    # 找到每个wvi对应的header，放到列表
+    if ann['wvi_corenlp'] == None:
+        return ann
+    # 确定在table_content中的index，没有为-1
+    wvis = ann['wvi_corenlp']
+    ixs = []
+    for wvi in wvis:
+        tmp_val = ''.join(ann['question_tok'][wvi[0]:(wvi[1]+1)])
+        find_it = False
+        if is_arabic_number(tmp_val):
+            ixs.append(-1)
+            continue
+        for ix, content in enumerate(table['table_content']):
+            if content == tmp_val:
+                find_it = True
+                ixs.append(ix)
+                break
+        if not find_it:
+            ixs.append(-1)
+
+    # 确定header列表，没有为None
+    header_list = []
+    for ix in ixs:
+        find_it = False
+        headers = table['content_header'][ix]
+        # 只考虑长度为1的header，怎么简单怎么来
+        if len(headers) == 1 and ix != -1:
+            find_it = True
+            header_list.append(headers[0])
+        if not find_it:
+            header_list.append(None)
+
+    # 将header插入，然后对wvi进行更新
+    insert_num = [0] * len(ann['wvi_corenlp'])
+    for i, wvi in enumerate(ann['wvi_corenlp']):
+        if header_list[i]:
+            ann['question_tok'].insert(wvi[0], header_list[i])
+            # Update wvi
+            for j, twv in enumerate(ann['wvi_corenlp']):
+                if twv[0] >= wvi[0]:
+                    twv[0] += 1
+                    twv[1] += 1
+
+    return ann
+
+
+def _insert_headers_nan_test(ann, table):
+    """对val和test进行操作，将可能是table_content中的值的header信息插入到content之前"""
+    for ix, content in enumerate(table['table_content']):
+        wvi = find_str_wvi_full_match(content, ann['question_tok'])
+        # 如果找到content并且这个content对应的header只有一个, 并且不是数字
+        if wvi:
+            tmp_str = ''.join(ann['question_tok'][wvi[0]:(wvi[1]+1)])
+            if len(table['content_header'][ix]) == 1 and not is_arabic_number(tmp_str):
+                # 这个过程可能会陷入死循环
+                # 即：如果插入的值出现在还没有遍历到的content时，可能性很小，先不管 warn
+                ann['question_tok'].insert(wvi[0], table['content_header'][ix][0])
+    return ann
+
+
+def _get_date(token_list, ix):
+    # 遍历顺序 ix向前，ix向后，找到对应的日期,是4位的或者None
+    tmp_token_list = token_list[:ix][::-1] + token_list[ix+1:]
+    date = None
+    for token in tmp_token_list:
+        if str.isdigit(token):
+            # 返回年份,ix之前的遍历
+            if len(token) == 4 and 1970 <= int(token) <= 2050:
+                return token
+            # if len(token) == 2 and 0 <= int(token) <= 50:
+            #     date_list.add('20' + token)
+    # 没找到返回None
+    return None
+
+
+def _get_header(headers, term_type, date):
+    """根据日期和术语类型如PE, EPS等寻找对应的全称"""
+    results = []
+    mp = None
+    mp_digit = re.compile('(20)?[0-9]{2}')
+    if term_type == 'PE':
+        # PE(TTM) PE2017E PE18E P/E18E 12EPE 2011市盈率 2011E市盈率 PE(X)2011A
+        mp = re.compile('P/?E.*(20)?[0-9]{2}|PE.*|(20)?[0-9]{2}.?PE|(20)?[0-9]{2}.?市盈率')
+    elif term_type == 'EPS':
+        # 格式同上
+        mp = re.compile('EPS.*(20)?[0-9]{2}|EPS.*|(20)?[0-9]{2}.?EPS|(20)?[0-9]{2}.?每股(收益|盈余)')
+    elif term_type == 'PS':
+        mp = re.compile('市销率|^PS$')
+    elif term_type == 'PB':
+        mp = re.compile('P/?B.*(20)?[0-9]{2}|PE.*|(20)?[0-9]{2}.?PB|(理论)?P/?B|市净率')
+    elif term_type == 'ROE':
+        mp = re.compile('ROE.*(20)?[0-9]{2}|ROE.*|ROE|净资产收益率')
+    elif term_type == 'RNAV':
+        mp = re.compile('RNAV|重估净资产')
+    # 第一遍确定个数，如果只有一个，直接返回就行, 以PE为例
+    match_results = []
+    for header in headers:
+        # 如果匹配成功, 匹配不成功返回None
+        if mp.match(header):
+            # match_str = curr_result.group()     # 匹配的字符串
+            match_results.append(header)
+    if len(match_results) == 0:
+        return []
+    if len(match_results) == 1:
+        return match_results
+    # 如果匹配多个，但是日期为空(日期是选择的关键)
+    # print(date)
+    # print(match_results)
+    if not date:
+        return []
+
+    # 如果不止一个匹配结果
+    for header in match_results:
+        ms = mp.match(header).group()   # 匹配的字符串
+        digit = mp_digit.search(ms)     # 获取字符串中的数字
+        if digit:
+            digit = digit.group()
+            if len(digit) == 2:
+                digit = '20' + digit    # 将数字转化为日期
+            if digit == date:
+                return [header]
+    return match_results
+
+
+def _check_token_in_terms(token_list, ix, headers, term_type, term_list):
+    """
+    根据关键词如 本益比/PE/市盈率等 在header中寻找对应的值
+    Parameters:
+        term_type: PE, EPS, ROE, PS等
+        term_list: ['本益比', '市盈率', 'PE']等每一个term_type对应的常用词语
+    """
+    token = token_list[ix]
+    if token in term_list:
+        # 从question_tok中寻找日期，先找ix之前的，再找ix之后的
+        date = _get_date(token_list, ix) # None or 2018/2019...
+        # 根据日期和术语类型如PE, EPS等寻找对应的全称(正确表达)
+        header_list = _get_header(headers, term_type, date)
+        # 如果只有一个符合条件，则进行替换
+        if len(header_list) == 1:
+            return header_list[0]
+    return token
+
+
+def _process_share_terms(ann, headers, split):
+    """对证券领域股票专有名词的处理"""
+    # PS: 市净率
+    # ROE: 净资产收益率
+    # 解决PE
+    token_list = ann['question_tok']
+    # print(token_list)
+    # 必须确保每个关键词都是一个token
+    for ix, token in enumerate(token_list):
+        # 如果找到则进行替换，否则不进行替换
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'PE', ['本益比', '市盈率', 'PE'])
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'EPS', ['每股盈余', '每股收益', 'EPS'])
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'PB', ['市净率', 'PB'])
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'PS', ['市销率', 'PS'])
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'ROE', ['净资产收益率', 'ROE'])
+        token_list[ix] = _check_token_in_terms(token_list, ix, headers, 'RNAV', ['重估净资产', 'RNAV'])
+
+    return ann
+
+
+def _is_share_field(headers):
+    # 如果headers中出现这些则表示该table可能是属于证券领域
+    for header in headers:
+        if header.find('PE') != -1 or header.find('EPS') != -1 or header.find('PB') != -1 or \
+            header.find('本益比') != -1 or header.find('市盈率') != -1 or header.find('收益') != -1:
+            return True
+    return False
+
+
+def insert_headers_nan(ann, table, split):
+    """
+    将header信息插入到question_tok，两种选择：插入到wv前；插入到句子前；先试试第1种
+    """
+    # val和test不使用wvi进行操作, 即按照test的方式来, train使用wvi来进行操作
+    return _insert_headers_nan_train(ann, table) if split == 'train' else _insert_headers_nan_test(ann, table)
+
+
+def insert_headers_digit(ann, table, split):
+    """
+    对关键的token进行替换，替换成表头
+    """
+    # 根据header判断是否属于证券领域，对证券领域股票专有名词的处理
+    if _is_share_field(table['header']):
+        ann = _process_share_terms(ann, table['header'], split)
+
+    return ann
 
 
 def annotate_example_nlpir(example, table, split):
@@ -1365,6 +1813,7 @@ def annotate_example_nlpir(example, table, split):
     example['question'] = example['question'].strip()   # 去除首尾空格
     example['question'] = replace_words(example['question'])    # 替换
     example['question'] = remove_special_char(example['question'])  # 去除question中的特殊字符
+    example['question'] = change_special_pattern(example['question'])   # 改变一些固有模式，如 不是...吗 在...以下
 
     # 去除wv中的特殊字符，可能val也需要类似的处理
     conds_value = set()
@@ -1406,6 +1855,8 @@ def annotate_example_nlpir(example, table, split):
     # 如果可以进行完全匹配(子列表是wv或者table中的一个元素，则聚合成一个整体，后续不再对该token进行处理，包括其中的数字) 
     # 完全匹配可以对数字处理
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
+    # 对header进行全匹配
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, None, header_words, header_words, split, order=0)
     # 如果不能进行完全匹配，则对 **没有进行完全匹配的token** 进行模糊匹配，只对中文进行处理\
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=0)
 
@@ -1416,22 +1867,30 @@ def annotate_example_nlpir(example, table, split):
     processed_nlu_token_list = special_patten_agg(processed_nlu_token_list, table_words, conds_value)
 
     processed_nlu_token_list = full_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
+    processed_nlu_token_list = full_match_agg(processed_nlu_token_list, None, header_words, header_words, split, order=1)
     processed_nlu_token_list = part_match_agg(processed_nlu_token_list, table, table_words, conds_value, split, order=1)
 
-    # 后处理
+    # 后处理,如年份转化，2016.0 -> 2016
     processed_nlu_token_list = post_process(processed_nlu_token_list)
 
     # 正常情况下的question_tok
     ann['question_tok'] = processed_nlu_token_list
-    # ann['table'] = {
-    #     'header': [annotate(h) for h in table['header']],
-    # }
+
+    # train数据集应该按照哪种模式来插入？和val相同？
+    ann = insert_headers_digit(ann, table, split)
+
+    # 对非数字wv插入header
+    if split != 'train':
+        # 如果找到table中的value，则将该value对应的header插入到value之前, 根据wv插入header
+        # 对非数字进行操作
+        pass
+        # ann = insert_headers_nan(ann, table, split='test')
+
     # 测试集中没有sql属性，在这个地方进行判断
     if 'sql' not in example:
         return ann, table_words
         
     # Check whether wv_ann exsits inside question_tok
-
     try:
         # state 变量方便调试
         wvi1_corenlp, state = check_wv_in_nlu_tok(wv_ann1, ann['question_tok'])
@@ -1471,6 +1930,11 @@ def annotate_example_nlpir(example, table, split):
     # 增加一个属性，对每个wv，将其在table中的位置(行1, 行2)放到一个列表
     wv_pos = check_wv_in_table(table, ann['sql']['conds'], split)
     ann['wv_pos'] = wv_pos
+
+    # 对非数字wv插入header
+    if split == 'train':
+        pass
+        # ann = insert_headers_nan(ann, table, split)
 
     return ann, table_words
 
@@ -1687,6 +2151,8 @@ def _read_dic(fname):
 
 def _is_reasonable(s, ignore_digit=True):
     """去掉table_content中不符合条件的词，包括数字和单字"""
+    if len(s) == 0:
+        return False
     if len(s) > 50:
         return False
     if len(s) == 1 and s not in '0123456789':
@@ -1719,7 +2185,7 @@ def _generate_wv_pos_each(table):
     table_content_null = True
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit=True):
                 table_content_null = True
                 break
@@ -1730,8 +2196,9 @@ def _generate_wv_pos_each(table):
     # 生成table的table_content属性，从上到下，从左到右
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit):
+                # 去除特殊字符
                 table_content.add(sv)
 
     # 字典content_ix_dic：每个value对应的index
@@ -1744,7 +2211,7 @@ def _generate_wv_pos_each(table):
 
     for c in range(col_num):
         for r in range(row_num):
-            sv = str(table['rows'][r][c])
+            sv = remove_special_char(str(table['rows'][r][c]))
             if _is_reasonable(sv, ignore_digit):
                 ix = content_ix_dic[sv]     # 获取这个content在`table_content`中的位置
                 content_header[ix].add(headers[c])
@@ -1770,7 +2237,7 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
         base_path: 基本路径
     """
     # the tokened file of test is used to debug.
-    for split in ['train', 'val','test']:
+    for split in ['val', 'test']:
         fsplit = os.path.join(base_path, split, split) + '.json'
         ftable = os.path.join(base_path, split, split) + '.tables.json'
         ftable_new = os.path.join(base_path, split, split) + '_new.tables.json'
@@ -1811,9 +2278,10 @@ def token_train_val(base_path='./wikisql/data/tianchi/'):
                 cnt += 1
                 for t in a_list:
                     # 使用ensure_ascii=False避免写到文件的中文数据是ASCII编码表示
+                    mvl = 1
                     if split != 'test':
                         mvl = get_mvl(t)
-                    if mvl > 2 and split == 'train':
+                    if mvl > 2 and (split == 'train' or split == 'val'):
                         mvl_bigger_2 += 1
                         continue
                     if mvl == -1 and (split == 'train' or split == 'val'):
@@ -1859,7 +2327,7 @@ def token_each(record, table, split):
     ann, table_words = annotate_example_nlpir(record, table, split)
 
     results = record_broaden(ann, table_words, synonyms_dic, repeat=0)
-
+    
     if split != 'test':
         mvl = get_mvl(ann)
         # 如果token error或者mvl大于2表示不符合条件，返回None值，只针对train和val

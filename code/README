@@ -15,6 +15,10 @@
 4. 依赖包安装命令:
     pip install -r requirements.txt
     pynlpir update
+    chmod +x train.sh
+    chmod +x predict.sh
 5. 文件说明:
     训练文件：train.py 执行脚本(./train.sh)
+    注：如果--bS 32 参数(batch size)会耗尽计算资源，请减小该参数，如将bS设置为16
     推理文件：generate_result.py 执行脚本(./predict.sh)
+

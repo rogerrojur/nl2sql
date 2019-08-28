@@ -1571,8 +1571,12 @@ def check_is_digits_without_head(wv_string):
     if len(wv_string) == 0:
         return False
     wv_string_list = wv_string.strip().split('.')
+    if any([e == '' for e in wv_string_list]):
+        return False
     if wv_string_list[0][0] == '-':
         wv_string_list[0] = wv_string_list[0][1:]
+    if any([e == '' for e in wv_string_list]):
+        return False
     return True if wv_string == '0' or all([component.isdigit() for component in wv_string_list]) else False
 
 def check_is_digits(wv_string):
@@ -1580,8 +1584,12 @@ def check_is_digits(wv_string):
     if len(wv_string) == 0:
         return False
     wv_string_list = wv_string.strip().split('.')
+    if any([e == '' for e in wv_string_list]):
+        return False
     if wv_string_list[0][0] == '-':
         wv_string_list[0] = wv_string_list[0][1:]
+    if any([e == '' for e in wv_string_list]):
+        return False
     return True if wv_string == '0' or all([component.isdigit() for component in wv_string_list]) and not (len(wv_string_list) == 1 and wv_string_list[0][0] == '0') else False#如果没有小数点的情况下，不能以0开头
 
 def is_whitespace_g_wvi(c):

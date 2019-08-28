@@ -1568,21 +1568,21 @@ def check_conds_wv_last_not_same(conds, new_wv, nlu_t1):#注意这里是wv而不
 
 def check_is_digits_without_head(wv_string):
     wv_string = wv_string.strip()
-    if len(wv_string) == 0 or not wv_string[0].isdigit():
+    if len(wv_string) == 0:
         return False
     wv_string_list = wv_string.strip().split('.')
     if wv_string_list[0][0] == '-':
         wv_string_list[0] = wv_string_list[0][1:]
-    return True if all([component.isdigit() for component in wv_string_list]) else False
+    return True if wv_string == '0' or all([component.isdigit() for component in wv_string_list]) else False
 
 def check_is_digits(wv_string):
     wv_string = wv_string.strip()
-    if len(wv_string) == 0 or not wv_string[0].isdigit():
+    if len(wv_string) == 0:
         return False
     wv_string_list = wv_string.strip().split('.')
     if wv_string_list[0][0] == '-':
         wv_string_list[0] = wv_string_list[0][1:]
-    return True if all([component.isdigit() for component in wv_string_list]) and not (len(wv_string_list) == 1 and wv_string_list[0][0] == '0') else False#如果没有小数点的情况下，不能以0开头
+    return True if wv_string == '0' or all([component.isdigit() for component in wv_string_list]) and not (len(wv_string_list) == 1 and wv_string_list[0][0] == '0') else False#如果没有小数点的情况下，不能以0开头
 
 def is_whitespace_g_wvi(c):
     # if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
